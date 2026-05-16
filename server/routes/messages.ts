@@ -303,7 +303,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
 
     const task = team.innerServer.getTask(taskId);
     if (!task) return c.json({ error: "task not found" }, 404);
-    if (task.status !== "pending") return c.json({ error: `task status is '${task.status}', expected 'pending'` }, 400);
+    if (task.status !== "pending" && task.status !== "running") return c.json({ error: `task status is '${task.status}', cannot start` }, 400);
 
     const updated = team.innerServer.startTask(taskId);
     return c.json({ ok: true, task: updated });
