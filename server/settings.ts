@@ -43,7 +43,7 @@ export async function loadSettings(): Promise<AppSettings> {
     const parsed = JSON.parse(raw) as AppSettings & Record<string, unknown>;
 
     // Legacy migration: old format had ai.provider but no ai.presets
-    if (parsed.ai && !Array.isArray((parsed.ai as Record<string, unknown>).presets)) {
+    if (parsed.ai && !Array.isArray((parsed.ai as unknown as Record<string, unknown>).presets)) {
       const legacy = parsed.ai as unknown as LegacyAIFields;
       console.log("[settings] Migrating legacy AI config to presets format...");
       const preset: ModelPreset = {

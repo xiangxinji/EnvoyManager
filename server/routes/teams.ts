@@ -139,7 +139,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     if (meta.members.some((m) => m.username === username))
       return c.json({ error: "member already in team" }, 409);
 
-    const body = await c.req.json<{ responsibilities?: string; capabilities?: string }>().catch(() => ({}));
+    const body = await c.req.json<{ responsibilities?: string; capabilities?: string }>().catch(() => ({ responsibilities: undefined, capabilities: undefined }));
     meta.members.push({ username, responsibilities: body.responsibilities, capabilities: body.capabilities });
     await saveMeta(meta);
     return c.json({ ok: true });

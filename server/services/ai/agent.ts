@@ -1,4 +1,5 @@
 import { generateText, tool, jsonSchema } from "ai";
+import type { CoreMessage } from "ai";
 import type { Context } from "hono";
 import type { ResolvedScene } from "../../settings.js";
 import { AGENT_SYSTEM_PROMPT } from "./prompts/agent.js";
@@ -38,7 +39,7 @@ export async function handleAgentReason(c: Context, resolved: ResolvedScene) {
   }
 
   // Build messages with system prompt — convert to ai-sdk CoreMessage format
-  const messages: Array<Record<string, unknown>> = [
+  const messages: CoreMessage[] = [
     { role: "system", content: AGENT_SYSTEM_PROMPT },
   ];
 
@@ -55,19 +56,22 @@ export async function handleAgentReason(c: Context, resolved: ResolvedScene) {
   for (const m of body.messages) {
     if (m.toolCalls) {
       flushToolResults();
-      const content: Array<Record<string, unknown>> = [];
+      const content: CoreMessage[] = [];
       if (m.content) {
-        content.push({ type: "text", text: m.content });
+        content.push({ role: "user", content: m.content });
       }
       for (const tc of m.toolCalls) {
         content.push({
-          type: "tool-call",
-          toolCallId: tc.id,
-          toolName: tc.name,
-          args: tc.args,
+          role: "assistant",
+          content: [{
+            type: "tool-call" as const,
+            toolCallId: tc.id,
+            toolName: tc.name,
+            args: tc.args,
+          }],
         });
       }
-      messages.push({ role: "assistant", content });
+      messages.push(...content as CoreMessage[]);
     } else if (m.toolCallId) {
       pendingToolResults.push({
         type: "tool-result",
@@ -77,7 +81,7 @@ export async function handleAgentReason(c: Context, resolved: ResolvedScene) {
       });
     } else {
       flushToolResults();
-      messages.push({ role: m.role, content: m.content });
+      messages.push({ role: m.role as "user", content: m.content });
     }
   }
   flushToolResults();
