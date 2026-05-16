@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { Team } from "../../../envoy/packages/teams/team.js";
-import { closeTeamDatabase } from "../db.js";
+import { closeTeamDatabase, queryTasks, queryTaskById } from "../db.js";
 import {
   loadRegistry,
   allocatePort,
@@ -175,25 +175,25 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
   });
 
   app.get("/api/teams/:name/tasks", async (c) => {
-    const instance = teams.get(c.req.param("name"));
+    const name = c.req.param("name");
+    const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
-    const tasks = instance.innerServer.getAllTasks();
-    return c.json(
-      tasks.map((t) => {
-        const clientResult = t.resources.find((r) => r.type === "client-result");
-        return {
-          ...t,
-          assignedTo: clientResult?.by ?? null,
-          result: clientResult?.data ?? null,
-        };
-      })
-    );
+    const tasks = queryTasks(name);
+    return c.json(tasks.map((t) => {
+      const clientResult = t.resources.find((r) => r.type === "client-result");
+      return {
+        ...t,
+        assignedTo: clientResult?.by ?? null,
+        result: clientResult?.data ?? null,
+      };
+    }));
   });
 
   app.get("/api/teams/:name/tasks/:id", async (c) => {
-    const instance = teams.get(c.req.param("name"));
+    const name = c.req.param("name");
+    const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
-    const task = instance.innerServer.getTask(c.req.param("id"));
+    const task = queryTaskById(name, c.req.param("id"));
     if (!task) return c.json({ error: "task not found" }, 404);
     const clientResults = task.resources.filter((r) => r.type === "client-result");
     return c.json({

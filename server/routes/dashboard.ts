@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { Team } from "../../../envoy/packages/teams/team.js";
-import { loadRegistry, loadTasksForTeam } from "../team-registry.js";
+import { loadRegistry } from "../team-registry.js";
+import { queryTasks } from "../db.js";
 
 export default function dashboardRoutes(app: Hono, teams: Map<string, Team>) {
   app.get("/api/dashboard", async (c) => {
@@ -25,7 +26,7 @@ export default function dashboardRoutes(app: Hono, teams: Map<string, Team>) {
         totalOnline += instance.innerServer.getOnlineClients().length;
       }
 
-      const tasks = await loadTasksForTeam(rec.name);
+      const tasks = queryTasks(rec.name);
 
       for (const t of tasks) {
         const clientResult = t.resources.find((r) => r.type === "client-result");

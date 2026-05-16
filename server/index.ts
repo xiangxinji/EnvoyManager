@@ -1,9 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
-import { mkdir, writeFile } from "node:fs/promises";
 import { Team } from "../../envoy/packages/teams/team.js";
-import { loadRegistry, ensureTeamsDir, getTaskDir } from "./team-registry.js";
+import { loadRegistry, ensureTeamsDir, getTeamDir } from "./team-registry.js";
 import type { Task } from "../../envoy/packages/core/task.js";
 import teamRoutes from "./routes/teams.js";
 import userRoutes from "./routes/users.js";
@@ -13,8 +12,7 @@ import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
 import { initCrypto } from "./crypto.js";
 import { initSettings } from "./settings.js";
-import { initTeamDatabase, insertMessage } from "./db.js";
-import { getTeamDir } from "./team-registry.js";
+import { initTeamDatabase, insertMessage, upsertTask } from "./db.js";
 
 const app = new Hono();
 app.use("*", cors());
@@ -46,19 +44,14 @@ function setupTaskPersistence(teamName: string, team: Team): void {
 }
 
 async function persistTask(teamName: string, task: Task): Promise<void> {
+  // Upsert task to SQLite
   try {
-    const taskDir = getTaskDir(teamName, task.id);
-    await mkdir(taskDir, { recursive: true });
-    await writeFile(
-      `${taskDir}/task.json`,
-      JSON.stringify(task, null, 2),
-      "utf-8"
-    );
+    upsertTask(teamName, task);
   } catch (e) {
-    console.error(`[persist] failed for task ${task.id}:`, e);
+    console.error(`[persist] failed to upsert task ${task.id}:`, e);
   }
 
-  // Persist task message to SQLite for sync
+  // Persist task message to SQLite for chat history sync
   try {
     for (const subscriber of task.subscribe) {
       insertMessage(teamName, {
