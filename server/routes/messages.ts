@@ -3,6 +3,7 @@ import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readdir, readFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { getResourcesDir, getTaskDir } from "../team-registry.js";
+import { insertMessage, queryMessages, queryConversations } from "../db.js";
 
 import { randomUUID } from "node:crypto";
 
@@ -103,8 +104,22 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const payload: Record<string, unknown> = { text: body.text };
     if (body.attachments) payload.attachments = body.attachments;
 
+    // Insert to SQLite first
+    const { id, seq } = insertMessage(teamName, {
+      type: "chat",
+      subtype: "chat",
+      from_user: body.from,
+      to_user: body.to,
+      content: body.text,
+      extra: body.attachments ? { attachments: body.attachments } : undefined,
+    });
+
+    // Inject server ID and seq into relay payload
+    payload.id = id;
+    payload.seq = seq;
+
     team.innerServer.relay(body.from, body.to, "chat", payload);
-    return c.json({ ok: true });
+    return c.json({ ok: true, id, seq });
   });
 
   app.post("/api/tasks", async (c) => {
@@ -312,5 +327,38 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
 
     const updated = team.innerServer.manualCompleteTask(taskId, body.from, body.data);
     return c.json({ ok: true, task: updated });
+  });
+
+  // Sync messages: pull incremental messages for a user in a team
+  app.get("/api/messages/sync", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const user = c.req.query("user");
+    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+
+    const afterSeq = Number(c.req.query("after_seq") ?? 0);
+    const limit = Math.min(Number(c.req.query("limit") ?? 200), 500);
+
+    const result = queryMessages(teamName, { user, after_seq: afterSeq, limit });
+    return c.json(result);
+  });
+
+  // List conversations for a user in a team
+  app.get("/api/messages/conversations", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const user = c.req.query("user");
+    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+
+    const conversations = queryConversations(teamName, user);
+    return c.json(conversations);
   });
 }

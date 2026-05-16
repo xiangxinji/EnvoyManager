@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { Team } from "../../../envoy/packages/teams/team.js";
+import { closeTeamDatabase } from "../db.js";
 import {
   loadRegistry,
   allocatePort,
@@ -105,6 +106,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
       teams.delete(name);
     }
 
+    closeTeamDatabase(name);
     await deleteTeamDir(name);
 
     console.log(`[deleted] team "${name}"`);

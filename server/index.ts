@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { mkdir, writeFile } from "node:fs/promises";
 import { Team } from "../../envoy/packages/teams/team.js";
-import { loadRegistry, ensureTeamsDir, getTasksDir, getTaskDir, getResourcesDir } from "./team-registry.js";
+import { loadRegistry, ensureTeamsDir, getTaskDir } from "./team-registry.js";
 import type { Task } from "../../envoy/packages/core/task.js";
 import teamRoutes from "./routes/teams.js";
 import userRoutes from "./routes/users.js";
@@ -13,6 +13,8 @@ import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
 import { initCrypto } from "./crypto.js";
 import { initSettings } from "./settings.js";
+import { initTeamDatabase, insertMessage } from "./db.js";
+import { getTeamDir } from "./team-registry.js";
 
 const app = new Hono();
 app.use("*", cors());
@@ -28,6 +30,7 @@ async function restoreTeams(): Promise<void> {
     const team = new Team({ port: rec.port, host: "0.0.0.0" });
     await team.start();
     teamInstances.set(rec.name, team);
+    initTeamDatabase(getTeamDir(rec.name));
     setupTaskPersistence(rec.name, team);
     console.log(`[restored] team "${rec.name}" on port ${rec.port}`);
   }
@@ -54,13 +57,37 @@ async function persistTask(teamName: string, task: Task): Promise<void> {
   } catch (e) {
     console.error(`[persist] failed for task ${task.id}:`, e);
   }
+
+  // Persist task message to SQLite for sync
+  try {
+    for (const subscriber of task.subscribe) {
+      insertMessage(teamName, {
+        type: "task",
+        subtype: `task:${task.status}`,
+        from_user: task.createBy,
+        to_user: subscriber,
+        content: task.content,
+        extra: {
+          taskId: task.id,
+          status: task.status,
+          subscribe: task.subscribe,
+          resources: task.resources,
+        },
+      });
+    }
+  } catch (e) {
+    console.error(`[persist] failed to insert task message for ${task.id}:`, e);
+  }
 }
 
 // Register route groups
 adminRoutes(app);
 aiRoutes(app);
 messageRoutes(app, teamInstances);
-teamRoutes(app, teamInstances, (name, team) => setupTaskPersistence(name, team));
+teamRoutes(app, teamInstances, (name, team) => {
+  initTeamDatabase(getTeamDir(name));
+  setupTaskPersistence(name, team);
+});
 userRoutes(app);
 dashboardRoutes(app, teamInstances);
 
