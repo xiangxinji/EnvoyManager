@@ -108,6 +108,23 @@ const TASK_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_task_created ON tasks(created_at)",
 ];
 
+const CREATE_CLOUD_FILES_TABLE = `
+CREATE TABLE IF NOT EXISTS cloud_files (
+  id          TEXT PRIMARY KEY NOT NULL,
+  name        TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  type        TEXT NOT NULL DEFAULT 'file',
+  size        INTEGER NOT NULL DEFAULT 0,
+  uploaded_by TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+)`;
+
+const CLOUD_FILE_INDEXES = [
+  "CREATE INDEX IF NOT EXISTS idx_cloud_path ON cloud_files(path)",
+  "CREATE INDEX IF NOT EXISTS idx_cloud_parent ON cloud_files(path, name)",
+];
+
 // ─── Init ─────────────────────────────────────────────────────
 
 function getDbDir(teamDir: string): string {
@@ -123,7 +140,8 @@ export function initTeamDatabase(teamDir: string): void {
   db.pragma("journal_mode = WAL");
   db.exec(CREATE_MESSAGES_TABLE);
   db.exec(CREATE_TASKS_TABLE);
-  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES]) {
+  db.exec(CREATE_CLOUD_FILES_TABLE);
+  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES]) {
     db.exec(sql);
   }
 
@@ -284,4 +302,78 @@ export function queryTaskById(teamName: string, taskId: string): TaskRow | null 
   const db = getDb(teamName);
   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as StoredTask | undefined;
   return row ? rowToTaskRow(row) : null;
+}
+
+// ─── Cloud Files CRUD ─────────────────────────────────────────
+
+export interface CloudFileRecord {
+  id: string;
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size: number;
+  uploaded_by: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CloudStats {
+  totalFiles: number;
+  totalSize: number;
+  totalDirs: number;
+  byUser: Array<{ user: string; fileCount: number; totalSize: number }>;
+}
+
+export function insertCloudFile(teamName: string, record: Omit<CloudFileRecord, "id">): CloudFileRecord {
+  const db = getDb(teamName);
+  const id = randomUUID();
+  const now = Date.now();
+  db.prepare(
+    "INSERT INTO cloud_files (id, name, path, type, size, uploaded_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, record.name, record.path, record.type, record.size, record.uploaded_by, now, now);
+  return { ...record, id, created_at: now, updated_at: now };
+}
+
+export function queryCloudDir(teamName: string, dirPath: string): CloudFileRecord[] {
+  const db = getDb(teamName);
+  return db.prepare("SELECT * FROM cloud_files WHERE path = ? ORDER BY type DESC, name ASC").all(dirPath) as CloudFileRecord[];
+}
+
+export function findCloudFile(teamName: string, path: string, name: string): CloudFileRecord | undefined {
+  const db = getDb(teamName);
+  return db.prepare("SELECT * FROM cloud_files WHERE path = ? AND name = ?").get(path, name) as CloudFileRecord | undefined;
+}
+
+export function deleteCloudFile(teamName: string, id: string): boolean {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM cloud_files WHERE id = ?").run(id);
+  return info.changes > 0;
+}
+
+export function deleteCloudDirRecursive(teamName: string, dirPath: string): number {
+  const db = getDb(teamName);
+  const prefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
+  // Extract parent path and dir name from the full path
+  // e.g. "t1/t2/" → parentPath="t1/", dirName="t2"; "spec/" → parentPath="", dirName="spec"
+  const parts = dirPath.replace(/\/$/, "").split("/");
+  const dirName = parts.pop()!;
+  const parentPath = parts.length > 0 ? parts.join("/") + "/" : "";
+  const self = db.prepare("DELETE FROM cloud_files WHERE path = ? AND name = ?").run(parentPath, dirName);
+  const children = db.prepare("DELETE FROM cloud_files WHERE path = ? OR path LIKE ?").run(dirPath, `${prefix}%`);
+  return self.changes + children.changes;
+}
+
+export function getCloudStats(teamName: string): CloudStats {
+  const db = getDb(teamName);
+  const fileRow = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as total FROM cloud_files WHERE type = 'file'").get() as { count: number; total: number };
+  const dirRow = db.prepare("SELECT COUNT(*) as count FROM cloud_files WHERE type = 'directory'").get() as { count: number };
+  const userRows = db.prepare(
+    "SELECT uploaded_by as user, COUNT(*) as fileCount, COALESCE(SUM(size), 0) as totalSize FROM cloud_files WHERE type = 'file' GROUP BY uploaded_by"
+  ).all() as Array<{ user: string; fileCount: number; totalSize: number }>;
+  return {
+    totalFiles: fileRow.count,
+    totalSize: fileRow.total,
+    totalDirs: dirRow.count,
+    byUser: userRows,
+  };
 }

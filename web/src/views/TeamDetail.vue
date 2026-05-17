@@ -18,6 +18,7 @@ const addUsername = ref("");
 const addResponsibilities = ref("");
 const addCapabilities = ref("");
 const adding = ref(false);
+const cloudStats = ref<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> } | null>(null);
 let timer: ReturnType<typeof setInterval>;
 
 async function refresh() {
@@ -34,6 +35,12 @@ async function refresh() {
     configuredMembers.value = cfg.members;
     allUsers.value = users;
     error.value = "";
+    // Load cloud stats
+    try {
+      cloudStats.value = await api.getCloudStats(props.name);
+    } catch {
+      cloudStats.value = null;
+    }
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -86,6 +93,13 @@ onMounted(() => {
 });
 
 onUnmounted(() => clearInterval(timer));
+
+function formatCloudSize(bytes: number): string {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+}
 </script>
 
 <template>
@@ -130,6 +144,30 @@ onUnmounted(() => clearInterval(timer));
       <section class="section">
         <h2 class="section-title">任务 ({{ tasks.length }})</h2>
         <TaskTable :tasks="tasks" :team="name" />
+      </section>
+
+      <section v-if="cloudStats" class="section">
+        <h2 class="section-title">云资源</h2>
+        <div class="cloud-stats-grid">
+          <div class="stat-card">
+            <span class="stat-value">{{ cloudStats.totalFiles }}</span>
+            <span class="stat-label">文件数</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ formatCloudSize(cloudStats.totalSize) }}</span>
+            <span class="stat-label">总大小</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ cloudStats.totalDirs }}</span>
+            <span class="stat-label">目录数</span>
+          </div>
+        </div>
+        <div v-if="cloudStats.byUser.length > 0" class="cloud-user-list">
+          <div v-for="u in cloudStats.byUser" :key="u.user" class="cloud-user-row">
+            <span class="cloud-user-name">{{ u.user }}</span>
+            <span class="cloud-user-info">{{ u.fileCount }} 文件 · {{ formatCloudSize(u.totalSize) }}</span>
+          </div>
+        </div>
       </section>
     </template>
 
@@ -403,5 +441,64 @@ onUnmounted(() => clearInterval(timer));
 .btn-confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.cloud-stats-grid {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.stat-card {
+  flex: 1;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.stat-value {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.82em;
+  color: var(--text-muted);
+}
+
+.cloud-user-list {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.cloud-user-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88em;
+}
+
+.cloud-user-row:last-child {
+  border-bottom: none;
+}
+
+.cloud-user-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cloud-user-info {
+  color: var(--text-muted);
+  font-size: 0.85em;
 }
 </style>

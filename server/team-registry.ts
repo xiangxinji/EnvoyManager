@@ -36,6 +36,10 @@ export function getResourcesDir(name: string, taskId: string): string {
   return join(TEAMS_DIR, name, "tasks", taskId, "resources");
 }
 
+export function getCloudDir(name: string): string {
+  return join(TEAMS_DIR, name, "cloud");
+}
+
 export async function ensureTeamsDir(): Promise<void> {
   await mkdir(TEAMS_DIR, { recursive: true });
 }

@@ -10,6 +10,7 @@ import dashboardRoutes from "./routes/dashboard.js";
 import adminRoutes from "./routes/admin.js";
 import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
+import cloudRoutes from "./routes/cloud.js";
 import { initCrypto } from "./crypto.js";
 import { initSettings } from "./settings.js";
 import { initTeamDatabase, insertMessage, upsertTask } from "./db.js";
@@ -77,6 +78,7 @@ async function persistTask(teamName: string, task: Task): Promise<void> {
 adminRoutes(app);
 aiRoutes(app);
 messageRoutes(app, teamInstances);
+cloudRoutes(app, teamInstances);
 teamRoutes(app, teamInstances, (name, team) => {
   initTeamDatabase(getTeamDir(name));
   setupTaskPersistence(name, team);

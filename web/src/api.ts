@@ -291,4 +291,10 @@ export const api = {
     }),
   checkAIHealth: () =>
     request<{ configured: boolean; provider: string; model: string }>("/ai/health"),
+
+  // Cloud resources
+  getCloudStats: (team: string) =>
+    request<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/cloud/stats", {
+      headers: { team },
+    }),
 };
