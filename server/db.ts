@@ -153,6 +153,18 @@ function getDb(teamName: string): Database.Database {
 
 // ─── Message CRUD ─────────────────────────────────────────────
 
+export function deleteMessage(teamName: string, msgId: string): boolean {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM messages WHERE id = ?").run(msgId);
+  return info.changes > 0;
+}
+
+export function getMessageById(teamName: string, msgId: string): StoredMessage | null {
+  const db = getDb(teamName);
+  const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(msgId) as StoredMessage | undefined;
+  return row ?? null;
+}
+
 export function insertMessage(teamName: string, input: InsertMessageInput): { id: string; seq: number } {
   const db = getDb(teamName);
   const id = randomUUID();

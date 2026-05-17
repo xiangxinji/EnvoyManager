@@ -3,7 +3,7 @@ import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readdir, readFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { getResourcesDir, getTaskDir } from "../team-registry.js";
-import { insertMessage, queryMessages, queryConversations } from "../db.js";
+import { insertMessage, queryMessages, queryConversations, deleteMessage, getMessageById } from "../db.js";
 
 import { randomUUID } from "node:crypto";
 
@@ -122,6 +122,28 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
 
     team.innerServer.relay(body.from, body.to, "chat", payload);
     return c.json({ ok: true, id, seq });
+  });
+
+  app.delete("/api/messages/:id", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const msgId = c.req.param("id");
+    const from = c.req.query("from");
+    if (!from) return c.json({ error: "from is required" }, 400);
+
+    const msg = getMessageById(teamName, msgId);
+    if (!msg) return c.json({ error: "message not found" }, 404);
+    if (msg.from_user !== from) return c.json({ error: "not authorized" }, 403);
+
+    const deleted = deleteMessage(teamName, msgId);
+    if (!deleted) return c.json({ error: "message not found" }, 404);
+
+    team.innerServer.relay(msg.from_user, msg.to_user, "chat-revoke", { msgId });
+    return c.json({ ok: true });
   });
 
   app.post("/api/tasks", async (c) => {
