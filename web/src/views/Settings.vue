@@ -54,6 +54,7 @@ const SCENE_DEFINITIONS: Array<{ key: string; label: string; description: string
   { key: "agent", label: "Agent", description: "推理执行" },
   { key: "dispatch", label: "Dispatch", description: "智能分派" },
   { key: "review", label: "Review", description: "任务审核" },
+  { key: "auto-reply", label: "Auto Reply", description: "自动回复" },
 ];
 
 const hasPresets = computed(() => presets.value.length > 0);

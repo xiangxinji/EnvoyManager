@@ -96,13 +96,14 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; attachments?: unknown[] }>();
+    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[] }>();
     if (!body.from || !body.to || !body.text) {
       return c.json({ error: "from, to, text are required" }, 400);
     }
 
     const payload: Record<string, unknown> = { text: body.text };
     if (body.attachments) payload.attachments = body.attachments;
+    if (body.source) payload.source = body.source;
 
     // Insert to SQLite first
     const { id, seq } = insertMessage(teamName, {
@@ -112,6 +113,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
       to_user: body.to,
       content: body.text,
       extra: body.attachments ? { attachments: body.attachments } : undefined,
+      source: body.source,
     });
 
     // Inject server ID and seq into relay payload

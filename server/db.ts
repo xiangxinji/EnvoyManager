@@ -14,6 +14,7 @@ export interface InsertMessageInput {
   to_user: string;
   content: string;
   extra?: Record<string, unknown>;
+  source?: string;
 }
 
 export interface StoredMessage {
@@ -25,6 +26,7 @@ export interface StoredMessage {
   to_user: string;
   content: string;
   extra: string | null;
+  source: string;
   created_at: number;
 }
 
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS messages (
   to_user    TEXT NOT NULL,
   content    TEXT NOT NULL DEFAULT '',
   extra      TEXT,
+  source     TEXT NOT NULL DEFAULT 'human',
   created_at INTEGER NOT NULL
 )`;
 
@@ -124,6 +127,12 @@ export function initTeamDatabase(teamDir: string): void {
     db.exec(sql);
   }
 
+  // Migration: add source column if missing (existing databases)
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "source")) {
+    db.exec("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'human'");
+  }
+
   const teamName = teamDir.split(/[/\\]/).pop()!;
   teamDbs.set(teamName, db);
 }
@@ -148,12 +157,13 @@ export function insertMessage(teamName: string, input: InsertMessageInput): { id
   const db = getDb(teamName);
   const id = randomUUID();
   const extra = input.extra ? JSON.stringify(input.extra) : null;
+  const source = input.source ?? "human";
   const created_at = Date.now();
 
   const stmt = db.prepare(
-    "INSERT INTO messages (id, type, subtype, from_user, to_user, content, extra, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO messages (id, type, subtype, from_user, to_user, content, extra, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
-  const info = stmt.run(id, input.type, input.subtype ?? null, input.from_user, input.to_user, input.content, extra, created_at);
+  const info = stmt.run(id, input.type, input.subtype ?? null, input.from_user, input.to_user, input.content, extra, source, created_at);
 
   return { id, seq: info.lastInsertRowid as number };
 }

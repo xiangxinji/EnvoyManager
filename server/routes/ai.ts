@@ -16,6 +16,7 @@ import { createAIRoutes } from "../services/ai/index.js";
 import { handleAgentReason } from "../services/ai/agent.js";
 import { handleTaskDispatch } from "../services/ai/dispatch.js";
 import { handleTaskReview } from "../services/ai/review.js";
+import { handleAutoReplyGenerate } from "../services/ai/chat.js";
 import { PROVIDERS } from "../services/ai/constants.js";
 import type { SceneType } from "../../../shared/types/ai.js";
 
@@ -66,6 +67,16 @@ export default function aiRoutes(app: Hono) {
     try {
       const resolved = resolveForScene("agent" as SceneType);
       return handleAgentReason(c, resolved);
+    } catch {
+      return c.json({ error: "AI not configured" }, 503);
+    }
+  });
+
+  // Auto-reply (uses auto-reply scene + dedicated prompt)
+  app.post("/api/ai/auto-reply/generate", clientAuth, async (c) => {
+    try {
+      const resolved = resolveForScene("auto-reply" as SceneType);
+      return handleAutoReplyGenerate(c, resolved);
     } catch {
       return c.json({ error: "AI not configured" }, 503);
     }
