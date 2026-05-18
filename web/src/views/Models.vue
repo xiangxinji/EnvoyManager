@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { useRouter } from "vue-router";
 import { api } from "../api";
-
-const router = useRouter();
 
 interface PresetView {
   id: string;
@@ -45,11 +42,6 @@ onMounted(async () => {
     providers.value = providerList;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("unauthorized")) {
-      localStorage.removeItem("admin_token");
-      router.push("/login");
-      return;
-    }
     error.value = msg;
   } finally {
     loading.value = false;

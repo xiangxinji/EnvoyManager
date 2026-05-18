@@ -104,6 +104,13 @@ async function getPublicKey(): Promise<string> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
+  if (res.status === 401) {
+    if (localStorage.getItem("admin_token")) {
+      localStorage.removeItem("admin_token");
+      window.location.href = "/login";
+    }
+    throw new Error("unauthorized");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "Request failed");

@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
 import { api } from "../api";
-
-const router = useRouter();
 
 // ─── Admin ───
 
@@ -94,11 +91,6 @@ onMounted(async () => {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("unauthorized")) {
-      localStorage.removeItem("admin_token");
-      router.push("/login");
-      return;
-    }
     sceneError.value = msg;
   } finally {
     sceneLoading.value = false;

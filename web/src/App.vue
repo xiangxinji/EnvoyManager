@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from "vue-router";
 import { useTheme } from "./useTheme";
+import { api } from "./api";
 
 const router = useRouter();
 const { theme, toggle } = useTheme();
@@ -12,6 +13,13 @@ const navItems = [
   { path: "/models", label: "模型" },
   { path: "/settings", label: "设置" },
 ];
+
+function handleLogout() {
+  if (!confirm("确定要退出登录吗？")) return;
+  api.adminLogout().catch(() => {});
+  localStorage.removeItem("admin_token");
+  router.push("/login");
+}
 </script>
 
 <template>
@@ -32,6 +40,7 @@ const navItems = [
         </li>
       </ul>
       <div class="nav-footer">
+        <button class="logout-btn" @click="handleLogout">退出登录</button>
         <button class="theme-btn" @click="toggle" :title="theme === 'dark' ? '浅色模式' : '深色模式'">
           <svg v-if="theme === 'dark'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="5" />
@@ -130,6 +139,26 @@ const navItems = [
 .nav-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logout-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.82em;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.logout-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .theme-btn {

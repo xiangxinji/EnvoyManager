@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import { randomBytes } from "node:crypto";
 import {
   loadUsers,
-  saveUsers,
+  upsertUser,
+  deleteUser,
   authenticate,
   hashPassword,
   type UserRecord,
@@ -47,12 +48,9 @@ export default function userRoutes(app: Hono) {
     if (users.some((u) => u.username === username)) return c.json({ error: "user already exists" }, 409);
 
     const hashed = await hashPassword(password);
-    const user: UserRecord = { username, password: hashed, role, responsibilities, capabilities, createdAt: Date.now() };
-    users.push(user);
-    await saveUsers(users);
-
+    const created = await upsertUser({ username, password: hashed, role, responsibilities, capabilities });
     console.log(`[user-created] ${username} (${role})`);
-    return c.json({ username, role, responsibilities, capabilities, createdAt: user.createdAt }, 201);
+    return c.json({ username, role, responsibilities, capabilities, createdAt: created.createdAt }, 201);
   });
 
   app.patch("/api/users/:username", async (c) => {
@@ -62,20 +60,17 @@ export default function userRoutes(app: Hono) {
     const user = users.find((u) => u.username === username);
     if (!user) return c.json({ error: "user not found" }, 404);
 
-    if (body.responsibilities !== undefined) user.responsibilities = body.responsibilities.trim();
-    if (body.capabilities !== undefined) user.capabilities = body.capabilities.trim();
-    await saveUsers(users);
+    const responsibilities = body.responsibilities !== undefined ? body.responsibilities.trim() : user.responsibilities;
+    const capabilities = body.capabilities !== undefined ? body.capabilities.trim() : user.capabilities;
+    await upsertUser({ username, password: user.password, role: user.role, responsibilities, capabilities, createdAt: user.createdAt });
 
-    return c.json({ ok: true, responsibilities: user.responsibilities, capabilities: user.capabilities });
+    return c.json({ ok: true, responsibilities, capabilities });
   });
 
   app.delete("/api/users/:username", async (c) => {
     const username = c.req.param("username");
-    let users = await loadUsers();
-    const before = users.length;
-    users = users.filter((u) => u.username !== username);
-    if (users.length === before) return c.json({ error: "user not found" }, 404);
-    await saveUsers(users);
+    const removed = deleteUser(username);
+    if (!removed) return c.json({ error: "user not found" }, 404);
     console.log(`[user-deleted] ${username}`);
     return c.json({ ok: true });
   });

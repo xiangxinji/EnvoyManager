@@ -12,7 +12,7 @@ import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
 import cloudRoutes from "./routes/cloud.js";
 import { initCrypto } from "./crypto.js";
-import { initSettings } from "./settings.js";
+import { initManagerDB } from "./manager-db.js";
 import { initTeamDatabase, insertMessage, upsertTask } from "./db.js";
 
 const app = new Hono();
@@ -20,7 +20,10 @@ app.use("*", cors());
 
 const teamInstances = new Map<string, Team>();
 
-// Initialize RSA key pair before anything else
+// Initialize Manager DB before anything else
+initManagerDB();
+
+// Initialize RSA key pair
 initCrypto();
 
 async function restoreTeams(): Promise<void> {
@@ -90,7 +93,6 @@ dashboardRoutes(app, teamInstances);
 const PORT = Number(process.env.MANAGER_PORT) || 8080;
 
 await ensureTeamsDir();
-await initSettings();
 await restoreTeams();
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
