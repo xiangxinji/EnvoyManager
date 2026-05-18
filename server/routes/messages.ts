@@ -96,7 +96,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[] }>();
+    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown }>();
     if (!body.from || !body.to || !body.text) {
       return c.json({ error: "from, to, text are required" }, 400);
     }
@@ -105,10 +105,12 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     if (body.attachments) payload.attachments = body.attachments;
     if (body.source) payload.source = body.source;
     if (body.forwarded) payload.forwarded = body.forwarded;
+    if (body.quote) payload.quote = body.quote;
 
     const extra: Record<string, unknown> = {};
     if (body.attachments) extra.attachments = body.attachments;
     if (body.forwarded) extra.forwarded = body.forwarded;
+    if (body.quote) extra.quote = body.quote;
 
     // Insert to SQLite first
     const { id, seq } = insertMessage(teamName, {
