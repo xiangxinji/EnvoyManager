@@ -146,11 +146,8 @@ export function initTeamDatabase(teamDir: string): void {
   db.exec(CREATE_MESSAGES_TABLE);
   db.exec(CREATE_TASKS_TABLE);
   db.exec(CREATE_CLOUD_FILES_TABLE);
-  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES]) {
-    db.exec(sql);
-  }
 
-  // Migration: add source column if missing (existing databases)
+  // Migrations: add missing columns before creating indexes
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!columns.some((c) => c.name === "source")) {
     db.exec("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'human'");
@@ -160,6 +157,10 @@ export function initTeamDatabase(teamDir: string): void {
   }
   if (!columns.some((c) => c.name === "mentions")) {
     db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT");
+  }
+
+  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES]) {
+    db.exec(sql);
   }
 
   const teamName = teamDir.split(/[/\\]/).pop()!;
