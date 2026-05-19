@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { serve } from "@hono/node-server";
 import { Team } from "../../envoy/packages/teams/team.js";
 import { loadRegistry, ensureTeamsDir, getTeamDir } from "./team-registry.js";
@@ -12,7 +13,7 @@ import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
 import cloudRoutes from "./routes/cloud.js";
 import { initCrypto } from "./crypto.js";
-import { initManagerDB } from "./manager-db.js";
+import { initManagerDB, AVATARS_DIR } from "./manager-db.js";
 import { initTeamDatabase, insertMessage, upsertTask } from "./db.js";
 
 const app = new Hono();
@@ -76,6 +77,9 @@ async function persistTask(teamName: string, task: Task): Promise<void> {
     console.error(`[persist] failed to insert task message for ${task.id}:`, e);
   }
 }
+
+// Serve avatar files
+app.use("/avatars/*", serveStatic({ root: AVATARS_DIR, rewriteRequestPath: (path) => path.replace(/^\/avatars/, "") }));
 
 // Register route groups
 adminRoutes(app);

@@ -67,7 +67,15 @@ export interface UserInfo {
   role: "leader" | "member";
   responsibilities: string;
   capabilities: string;
+  nickname: string | null;
+  avatar_url: string | null;
   createdAt: number;
+}
+
+export interface UserProfile {
+  username: string;
+  nickname: string | null;
+  avatar_url: string | null;
 }
 
 export interface TeamMember {
@@ -144,19 +152,42 @@ export const api = {
   getTasks: (name: string) => request<TaskInfo[]>(`/teams/${name}/tasks`),
   getTaskDetail: (team: string, id: string) => request<TaskDetailData>(`/teams/${team}/tasks/${id}`),
   getUsers: () => request<UserInfo[]>("/users"),
-  createUser: async (username: string, password: string, role: "leader" | "member", responsibilities?: string, capabilities?: string) => {
+  createUser: async (username: string, password: string, role: "leader" | "member", responsibilities?: string, capabilities?: string, nickname?: string) => {
     const pubKey = await getPublicKey();
     const encrypted = await rsaEncrypt(pubKey, password);
     return request<UserInfo>("/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password: encrypted, role, responsibilities, capabilities }),
+      body: JSON.stringify({ username, password: encrypted, role, responsibilities, capabilities, nickname }),
     });
   },
   deleteUser: (username: string) =>
     request<{ ok: boolean }>(`/users/${username}`, { method: "DELETE" }),
-  updateUser: (username: string, data: { responsibilities?: string; capabilities?: string }) =>
+  updateUser: (username: string, data: { responsibilities?: string; capabilities?: string; nickname?: string | null }) =>
     request<{ ok: boolean }>(`/users/${username}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  uploadAvatar: async (username: string, file: File) => {
+    const formData = new FormData();
+    formData.append("avatar", file);
+    const token = localStorage.getItem("admin_token");
+    const res = await fetch(`${BASE}/users/${username}/avatar`, {
+      method: "POST",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "Upload failed");
+    }
+    return res.json() as Promise<{ avatar_url: string }>;
+  },
+  getProfiles: (names: string[]) =>
+    request<UserProfile[]>(`/users/profiles?names=${names.join(",")}`),
+  updateProfile: (username: string, data: { nickname?: string | null }) =>
+    request<{ ok: boolean; nickname: string | null; avatar_url: string | null }>(`/users/${username}/profile`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

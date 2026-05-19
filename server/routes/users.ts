@@ -1,5 +1,7 @@
 import type { Hono } from "hono";
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import sharp from "sharp";
 import {
   loadUsers,
   upsertUser,
@@ -9,6 +11,7 @@ import {
   type UserRecord,
 } from "../user-registry.js";
 import { getPublicKey, decryptWithPrivateKey } from "../crypto.js";
+import { AVATARS_DIR } from "../manager-db.js";
 
 const clientSessions = new Map<string, { userId: string; role: string; createdAt: number }>();
 const SESSION_TTL = 24 * 60 * 60 * 1000;
@@ -30,16 +33,17 @@ export default function userRoutes(app: Hono) {
 
   app.get("/api/users", async (c) => {
     const users = await loadUsers();
-    return c.json(users.map((u) => ({ username: u.username, role: u.role, responsibilities: u.responsibilities ?? "", capabilities: u.capabilities ?? "", createdAt: u.createdAt })));
+    return c.json(users.map((u) => ({ username: u.username, role: u.role, responsibilities: u.responsibilities ?? "", capabilities: u.capabilities ?? "", nickname: u.nickname ?? null, avatar_url: u.avatar_url ?? null, createdAt: u.createdAt })));
   });
 
   app.post("/api/users", async (c) => {
-    const body = await c.req.json<{ username?: string; password?: string; role?: string; responsibilities?: string; capabilities?: string }>();
+    const body = await c.req.json<{ username?: string; password?: string; role?: string; responsibilities?: string; capabilities?: string; nickname?: string }>();
     const username = body.username?.trim();
     const encryptedPassword = body.password;
     const role = body.role === "leader" ? "leader" : "member";
     const responsibilities = body.responsibilities?.trim() ?? "";
     const capabilities = body.capabilities?.trim() ?? "";
+    const nickname = body.nickname?.trim() || null;
     if (!username || !encryptedPassword) return c.json({ error: "username and password are required" }, 400);
 
     const password = decryptWithPrivateKey(encryptedPassword);
@@ -48,23 +52,89 @@ export default function userRoutes(app: Hono) {
     if (users.some((u) => u.username === username)) return c.json({ error: "user already exists" }, 409);
 
     const hashed = await hashPassword(password);
-    const created = await upsertUser({ username, password: hashed, role, responsibilities, capabilities });
+    const created = await upsertUser({ username, password: hashed, role, responsibilities, capabilities, nickname });
     console.log(`[user-created] ${username} (${role})`);
-    return c.json({ username, role, responsibilities, capabilities, createdAt: created.createdAt }, 201);
+    return c.json({ username, role, responsibilities, capabilities, nickname, createdAt: created.createdAt }, 201);
   });
 
   app.patch("/api/users/:username", async (c) => {
     const username = c.req.param("username");
-    const body = await c.req.json<{ responsibilities?: string; capabilities?: string }>();
+    const body = await c.req.json<{ responsibilities?: string; capabilities?: string; nickname?: string | null }>();
     const users = await loadUsers();
     const user = users.find((u) => u.username === username);
     if (!user) return c.json({ error: "user not found" }, 404);
 
     const responsibilities = body.responsibilities !== undefined ? body.responsibilities.trim() : user.responsibilities;
     const capabilities = body.capabilities !== undefined ? body.capabilities.trim() : user.capabilities;
-    await upsertUser({ username, password: user.password, role: user.role, responsibilities, capabilities, createdAt: user.createdAt });
+    const nickname = body.nickname !== undefined ? (body.nickname?.trim() || null) : user.nickname;
+    await upsertUser({ username, password: user.password, role: user.role, responsibilities, capabilities, nickname, avatar_url: user.avatar_url, createdAt: user.createdAt });
 
-    return c.json({ ok: true, responsibilities, capabilities });
+    return c.json({ ok: true, responsibilities, capabilities, nickname });
+  });
+
+  // ─── Avatar upload ───
+
+  const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+  app.post("/api/users/:username/avatar", async (c) => {
+    const username = c.req.param("username");
+    const users = await loadUsers();
+    const user = users.find((u) => u.username === username);
+    if (!user) return c.json({ error: "User not found" }, 404);
+
+    const body = await c.req.parseBody();
+    const file = body["avatar"];
+    if (!file || !(file instanceof File)) return c.json({ error: "No file uploaded" }, 400);
+
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      return c.json({ error: "Only image files are allowed" }, 400);
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      return c.json({ error: "File too large (max 10MB)" }, 400);
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const destPath = join(AVATARS_DIR, `${username}.webp`);
+
+    await sharp(buffer)
+      .resize(512, 512, { fit: "cover" })
+      .webp({ quality: 80 })
+      .toFile(destPath);
+
+    const avatarUrl = `/avatars/${username}.webp`;
+    await upsertUser({ username, password: user.password, role: user.role, responsibilities: user.responsibilities, capabilities: user.capabilities, nickname: user.nickname, avatar_url: avatarUrl, createdAt: user.createdAt });
+
+    return c.json({ avatar_url: avatarUrl });
+  });
+
+  // ─── Profile batch query ───
+
+  app.get("/api/users/profiles", async (c) => {
+    const namesParam = c.req.query("names") ?? "";
+    const names = namesParam ? namesParam.split(",").map((n) => n.trim()).filter(Boolean) : [];
+    if (names.length === 0) return c.json([]);
+
+    const users = await loadUsers();
+    const result = users
+      .filter((u) => names.includes(u.username))
+      .map((u) => ({ username: u.username, nickname: u.nickname ?? null, avatar_url: u.avatar_url ?? null }));
+    return c.json(result);
+  });
+
+  // ─── Profile update ───
+
+  app.patch("/api/users/:username/profile", async (c) => {
+    const username = c.req.param("username");
+    const body = await c.req.json<{ nickname?: string | null }>();
+    const users = await loadUsers();
+    const user = users.find((u) => u.username === username);
+    if (!user) return c.json({ error: "user not found" }, 404);
+
+    const nickname = body.nickname !== undefined ? (body.nickname?.trim() || null) : user.nickname;
+    await upsertUser({ username, password: user.password, role: user.role, responsibilities: user.responsibilities, capabilities: user.capabilities, nickname, avatar_url: user.avatar_url, createdAt: user.createdAt });
+
+    return c.json({ ok: true, nickname, avatar_url: user.avatar_url ?? null });
   });
 
   app.delete("/api/users/:username", async (c) => {

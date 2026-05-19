@@ -17,6 +17,10 @@ const newRole = ref<"leader" | "member">("member");
 const newResponsibilities = ref("");
 const newCapabilities = ref("");
 const creating = ref(false);
+const newNickname = ref("");
+const editNickname = ref("");
+const editAvatarFile = ref<File | null>(null);
+const editAvatarPreview = ref("");
 
 async function refresh() {
   try {
@@ -35,12 +39,13 @@ async function handleCreate() {
   if (!username || !password) return;
   creating.value = true;
   try {
-    await api.createUser(username, password, newRole.value, newResponsibilities.value.trim() || undefined, newCapabilities.value.trim() || undefined);
+    await api.createUser(username, password, newRole.value, newResponsibilities.value.trim() || undefined, newCapabilities.value.trim() || undefined, newNickname.value.trim() || undefined);
     newName.value = "";
     newPass.value = "";
     newRole.value = "member";
     newResponsibilities.value = "";
     newCapabilities.value = "";
+    newNickname.value = "";
     showCreate.value = false;
     await refresh();
   } catch (e: any) {
@@ -64,6 +69,9 @@ function openEdit(u: UserInfo) {
   editTarget.value = u;
   editResponsibilities.value = u.responsibilities;
   editCapabilities.value = u.capabilities;
+  editNickname.value = u.nickname || "";
+  editAvatarPreview.value = u.avatar_url || "";
+  editAvatarFile.value = null;
   showEdit.value = true;
 }
 
@@ -74,15 +82,29 @@ async function handleEditSave() {
     await api.updateUser(editTarget.value.username, {
       responsibilities: editResponsibilities.value.trim(),
       capabilities: editCapabilities.value.trim(),
+      nickname: editNickname.value.trim() || null,
     });
+    if (editAvatarFile.value) {
+      await api.uploadAvatar(editTarget.value.username, editAvatarFile.value);
+    }
     showEdit.value = false;
     editTarget.value = null;
+    editAvatarFile.value = null;
+    editAvatarPreview.value = "";
     await refresh();
   } catch (e: any) {
     error.value = e.message;
   } finally {
     editSaving.value = false;
   }
+}
+
+function handleAvatarSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  editAvatarFile.value = file;
+  editAvatarPreview.value = URL.createObjectURL(file);
 }
 
 onMounted(refresh);
@@ -103,7 +125,9 @@ onMounted(refresh);
         <table v-if="users.length > 0">
           <thead>
             <tr>
+              <th>头像</th>
               <th>用户名</th>
+              <th>昵称</th>
               <th>角色</th>
               <th>职责</th>
               <th>能力</th>
@@ -113,7 +137,12 @@ onMounted(refresh);
           </thead>
           <tbody>
             <tr v-for="u in users" :key="u.username">
+              <td class="avatar-cell">
+                <img v-if="u.avatar_url" :src="u.avatar_url" class="avatar-img" />
+                <span v-else class="avatar-placeholder">{{ u.username.charAt(0).toUpperCase() }}</span>
+              </td>
               <td class="name-cell">{{ u.username }}</td>
+              <td class="nickname-cell">{{ u.nickname || '-' }}</td>
               <td>
                 <span class="role-badge" :class="u.role">{{ u.role }}</span>
               </td>
@@ -149,6 +178,10 @@ onMounted(refresh);
             <button class="role-btn" :class="{ active: newRole === 'member' }" @click="newRole = 'member'">Member</button>
           </div>
         </div>
+        <div class="field">
+          <label>昵称</label>
+          <input v-model="newNickname" placeholder="输入昵称（选填）" @keydown.enter="handleCreate" />
+        </div>
         <div v-if="newRole === 'member'" class="field">
           <label>职责描述</label>
           <textarea v-model="newResponsibilities" placeholder="描述成员的职责（选填）" rows="2" @keydown.enter.ctrl="handleCreate"></textarea>
@@ -170,6 +203,21 @@ onMounted(refresh);
     <div v-if="showEdit" class="modal-overlay" @click.self="showEdit = false">
       <div class="modal">
         <h3>编辑用户 - {{ editTarget?.username }}</h3>
+        <div class="field">
+          <label>昵称</label>
+          <input v-model="editNickname" placeholder="输入昵称（选填）" />
+        </div>
+        <div class="field avatar-upload-field">
+          <label>头像</label>
+          <div class="avatar-upload-area">
+            <img v-if="editAvatarPreview" :src="editAvatarPreview" class="avatar-preview" />
+            <span v-else class="avatar-placeholder avatar-placeholder-lg">{{ editTarget?.username?.charAt(0).toUpperCase() || '?' }}</span>
+            <label class="avatar-upload-btn">
+              选择图片
+              <input type="file" accept="image/*" hidden @change="handleAvatarSelect" />
+            </label>
+          </div>
+        </div>
         <div class="field">
           <label>职责描述</label>
           <textarea v-model="editResponsibilities" placeholder="描述成员的职责（选填）" rows="2"></textarea>
@@ -456,6 +504,71 @@ tr:last-child td {
 
 .role-badge.member {
   background: var(--accent-light);
+  color: var(--accent);
+}
+
+.avatar-cell {
+  width: 40px;
+}
+
+.avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-light, rgba(0, 122, 255, 0.1));
+  color: var(--accent, #007aff);
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.avatar-placeholder-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 1.1em;
+}
+
+.nickname-cell {
+  font-size: 0.88em;
+  color: var(--text-secondary);
+}
+
+.avatar-upload-field .avatar-upload-area {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.avatar-preview {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border);
+}
+
+.avatar-upload-btn {
+  display: inline-block;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.82em;
+  cursor: pointer;
+}
+
+.avatar-upload-btn:hover {
+  border-color: var(--accent);
   color: var(--accent);
 }
 </style>

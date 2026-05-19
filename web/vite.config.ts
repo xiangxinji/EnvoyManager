@@ -10,6 +10,7 @@ export default defineConfig({
     https: true,
     proxy: {
       "/api": "http://localhost:8080",
+      "/avatars": "http://localhost:8080",
     },
   },
 });

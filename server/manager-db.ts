@@ -2,12 +2,13 @@ import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync, unlinkSync } from "node:fs";
 import bcrypt from "bcryptjs";
 import type { ModelPreset, SceneType, SceneConfig, ProviderType } from "../../shared/types/ai.js";
 
 const MANAGER_DB_DIR = join(homedir(), ".envoy", "manager", "db");
 const MANAGER_DB_PATH = join(MANAGER_DB_DIR, "manager.db");
+export const AVATARS_DIR = join(homedir(), ".envoy", "avatars");
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_PASSWORD = "admin123";
@@ -63,6 +64,20 @@ export function initManagerDB(): void {
   db.exec(CREATE_AI_PRESETS);
   db.exec(CREATE_AI_SCENES);
   db.exec(CREATE_USERS);
+
+  // Migration: add nickname and avatar_url columns if missing
+  const userCols = getDb().prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  const colNames = userCols.map((c) => c.name);
+  if (!colNames.includes("nickname")) {
+    db.exec("ALTER TABLE users ADD COLUMN nickname TEXT");
+    console.log("[manager-db] Migrated: added nickname column");
+  }
+  if (!colNames.includes("avatar_url")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+    console.log("[manager-db] Migrated: added avatar_url column");
+  }
+
+  mkdirSync(AVATARS_DIR, { recursive: true });
 
   // Seed default admin if empty
   const row = db.prepare("SELECT COUNT(*) as count FROM admin").get() as { count: number };
@@ -257,51 +272,62 @@ export interface UserRecord {
   role: "leader" | "member";
   responsibilities: string;
   capabilities: string;
+  nickname: string | null;
+  avatar_url: string | null;
   createdAt: number;
 }
 
-export function listUsers(): UserRecord[] {
-  const rows = getDb().prepare("SELECT * FROM users ORDER BY created_at ASC").all() as { username: string; password_bcrypt: string; role: string; responsibilities: string; capabilities: string; created_at: number }[];
-  return rows.map((r) => ({
+type UserRow = {
+  username: string; password_bcrypt: string; role: string;
+  responsibilities: string; capabilities: string;
+  nickname: string | null; avatar_url: string | null; created_at: number;
+};
+
+function rowToUser(r: UserRow): UserRecord {
+  return {
     username: r.username,
     password: r.password_bcrypt,
     role: r.role as "leader" | "member",
     responsibilities: r.responsibilities,
     capabilities: r.capabilities,
+    nickname: r.nickname,
+    avatar_url: r.avatar_url,
     createdAt: r.created_at,
-  }));
+  };
+}
+
+export function listUsers(): UserRecord[] {
+  const rows = getDb().prepare("SELECT * FROM users ORDER BY created_at ASC").all() as UserRow[];
+  return rows.map(rowToUser);
 }
 
 export function getUser(username: string): UserRecord | undefined {
-  const row = getDb().prepare("SELECT * FROM users WHERE username = ?").get(username) as { username: string; password_bcrypt: string; role: string; responsibilities: string; capabilities: string; created_at: number } | undefined;
+  const row = getDb().prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined;
   if (!row) return undefined;
-  return {
-    username: row.username,
-    password: row.password_bcrypt,
-    role: row.role as "leader" | "member",
-    responsibilities: row.responsibilities,
-    capabilities: row.capabilities,
-    createdAt: row.created_at,
-  };
+  return rowToUser(row);
 }
 
 export async function upsertUser(user: Omit<UserRecord, "createdAt"> & { createdAt?: number }): Promise<UserRecord> {
   const existing = getUser(user.username);
   const now = Date.now();
   const createdAt = user.createdAt ?? existing?.createdAt ?? now;
+  const nickname = user.nickname ?? existing?.nickname ?? null;
+  const avatarUrl = user.avatar_url ?? existing?.avatar_url ?? null;
 
   // Hash password if it's not already a bcrypt hash
   const passwordHash = user.password.startsWith("$2") ? user.password : await bcrypt.hash(user.password, 10);
 
   getDb().prepare(`
-    INSERT INTO users (username, password_bcrypt, role, responsibilities, capabilities, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO users (username, password_bcrypt, role, responsibilities, capabilities, nickname, avatar_url, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(username) DO UPDATE SET
       password_bcrypt = excluded.password_bcrypt,
       role = excluded.role,
       responsibilities = excluded.responsibilities,
-      capabilities = excluded.capabilities
-  `).run(user.username, passwordHash, user.role, user.responsibilities, user.capabilities, createdAt);
+      capabilities = excluded.capabilities,
+      nickname = excluded.nickname,
+      avatar_url = excluded.avatar_url
+  `).run(user.username, passwordHash, user.role, user.responsibilities, user.capabilities, nickname, avatarUrl, createdAt);
 
   return {
     username: user.username,
@@ -309,11 +335,23 @@ export async function upsertUser(user: Omit<UserRecord, "createdAt"> & { created
     role: user.role,
     responsibilities: user.responsibilities,
     capabilities: user.capabilities,
+    nickname,
+    avatar_url: avatarUrl,
     createdAt,
   };
 }
 
 export function deleteUser(username: string): boolean {
+  const user = getUser(username);
+  if (user?.avatar_url) {
+    const filename = user.avatar_url.split("/").pop();
+    if (filename) {
+      const filePath = join(AVATARS_DIR, filename);
+      if (existsSync(filePath)) {
+        try { unlinkSync(filePath); } catch { /* ignore */ }
+      }
+    }
+  }
   const info = getDb().prepare("DELETE FROM users WHERE username = ?").run(username);
   return info.changes > 0;
 }
