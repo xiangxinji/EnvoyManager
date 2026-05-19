@@ -66,6 +66,30 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
 
   app.get("/api/teams", async (c) => {
     const records = await loadRegistry();
+    const username = c.req.query("username")?.trim();
+
+    // If username provided, only return teams where user is leader or member
+    if (username) {
+      const filtered: TeamRecord[] = [];
+      for (const rec of records) {
+        const meta = await loadMeta(rec.name);
+        if (!meta) continue;
+        if (meta.leader === username || meta.members.some((m) => m.username === username)) {
+          filtered.push(rec);
+        }
+      }
+      return c.json(
+        filtered.map((rec) => {
+          const instance = teams.get(rec.name);
+          return {
+            ...rec,
+            status: instance ? "running" : "stopped",
+            stats: instance ? teamStats(instance) : null,
+          };
+        })
+      );
+    }
+
     return c.json(
       records.map((rec) => {
         const instance = teams.get(rec.name);
