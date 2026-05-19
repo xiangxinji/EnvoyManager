@@ -3,7 +3,7 @@ import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readdir, readFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { getResourcesDir, getTaskDir } from "../team-registry.js";
-import { insertMessage, queryMessages, queryConversations, deleteMessage, getMessageById } from "../db.js";
+import { insertMessage, queryMessages, queryConversations, deleteMessage, getMessageById, insertSticker, listStickersByUser, getStickerById, deleteSticker } from "../db.js";
 
 import { randomUUID } from "node:crypto";
 
@@ -96,7 +96,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; channel?: string; mentions?: string[] }>();
+    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; sticker?: unknown; channel?: string; mentions?: string[] }>();
     if (!body.from || !body.text) {
       return c.json({ error: "from, text are required" }, 400);
     }
@@ -113,11 +113,13 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     if (body.source) payload.source = body.source;
     if (body.forwarded) payload.forwarded = body.forwarded;
     if (body.quote) payload.quote = body.quote;
+    if (body.sticker) payload.sticker = body.sticker;
 
     const extra: Record<string, unknown> = {};
     if (body.attachments) extra.attachments = body.attachments;
     if (body.forwarded) extra.forwarded = body.forwarded;
     if (body.quote) extra.quote = body.quote;
+    if (body.sticker) extra.sticker = body.sticker;
 
     // Keep "all" as-is in mentions for storage (client expands for highlighting)
     const mentionsList = body.mentions ?? [];
@@ -434,5 +436,124 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
 
     const conversations = queryConversations(teamName, user);
     return c.json(conversations);
+  });
+
+  // ─── Sticker endpoints ───────────────────────────────────────
+
+  const MAX_STICKER_SIZE = 1024 * 1024; // 1MB
+  const STICKER_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+
+  // Upload sticker
+  app.post("/api/stickers", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+    const from = formData.get("from") as string | null;
+    if (!file || !(file instanceof File)) return c.json({ error: "file is required" }, 400);
+    if (!from) return c.json({ error: "from is required" }, 400);
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    if (buffer.length > MAX_STICKER_SIZE) {
+      return c.json({ error: "Sticker file too large, max 1MB" }, 413);
+    }
+
+    const ext = (file.name.includes(".") ? file.name.split(".").pop()! : "").toLowerCase();
+    if (!STICKER_EXTENSIONS.has(ext)) {
+      return c.json({ error: "Unsupported file type" }, 400);
+    }
+
+    const uuid = randomUUID();
+    const filename = `${uuid}.${ext}`;
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const dir = join(home, ".envoy", "stickers", teamName, from);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, filename), buffer);
+
+    const mimeType = file.type || "image/png";
+    const record = insertSticker(teamName, {
+      user_id: from,
+      name: file.name,
+      filename,
+      size: buffer.length,
+      mime_type: mimeType,
+    });
+
+    const url = `/api/stickers/${teamName}/${from}/${filename}`;
+    return c.json({ ok: true, sticker: { id: record.id, name: record.name, url, size: record.size, mimeType: record.mime_type } });
+  });
+
+  // List stickers
+  app.get("/api/stickers", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const user = c.req.query("user");
+    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+
+    const records = listStickersByUser(teamName, user);
+    const stickers = records.map((r) => ({
+      id: r.id,
+      name: r.name,
+      url: `/api/stickers/${teamName}/${r.user_id}/${r.filename}`,
+      size: r.size,
+      mimeType: r.mime_type,
+      createdAt: r.created_at,
+    }));
+    return c.json({ stickers });
+  });
+
+  // Delete sticker
+  app.delete("/api/stickers/:id", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const stickerId = c.req.param("id");
+    const from = c.req.query("from");
+    if (!from) return c.json({ error: "from is required" }, 400);
+
+    const sticker = getStickerById(teamName, stickerId);
+    if (!sticker) return c.json({ error: "sticker not found" }, 404);
+    if (sticker.user_id !== from) return c.json({ error: "not authorized" }, 403);
+
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const filePath = join(home, ".envoy", "stickers", teamName, sticker.user_id, sticker.filename);
+    try { await import("node:fs/promises").then((fs) => fs.unlink(filePath)); } catch { /* ignore */ }
+
+    deleteSticker(teamName, stickerId);
+    return c.json({ ok: true });
+  });
+
+  // Download sticker file
+  app.get("/api/stickers/:team/:userId/:file", async (c) => {
+    const teamName = basename(c.req.param("team"));
+    const userId = basename(c.req.param("userId"));
+    const filename = basename(c.req.param("file"));
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const filePath = join(home, ".envoy", "stickers", teamName, userId, filename);
+
+    try {
+      const data = await readFile(filePath);
+      const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+      const mimeMap: Record<string, string> = {
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+      };
+      const contentType = mimeMap[ext] ?? "application/octet-stream";
+      return new Response(data, {
+        headers: { "Content-Type": contentType, "Content-Disposition": `inline; filename="${filename}"` },
+      });
+    } catch {
+      return c.json({ error: "file not found" }, 404);
+    }
   });
 }

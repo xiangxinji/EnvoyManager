@@ -130,6 +130,21 @@ const CLOUD_FILE_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_cloud_parent ON cloud_files(path, name)",
 ];
 
+const CREATE_STICKERS_TABLE = `
+CREATE TABLE IF NOT EXISTS stickers (
+  id         TEXT PRIMARY KEY NOT NULL,
+  user_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  filename   TEXT NOT NULL,
+  size       INTEGER NOT NULL DEFAULT 0,
+  mime_type  TEXT NOT NULL DEFAULT 'image/png',
+  created_at INTEGER NOT NULL
+)`;
+
+const STICKER_INDEXES = [
+  "CREATE INDEX IF NOT EXISTS idx_sticker_user ON stickers(user_id)",
+];
+
 // ─── Init ─────────────────────────────────────────────────────
 
 function getDbDir(teamDir: string): string {
@@ -146,6 +161,7 @@ export function initTeamDatabase(teamDir: string): void {
   db.exec(CREATE_MESSAGES_TABLE);
   db.exec(CREATE_TASKS_TABLE);
   db.exec(CREATE_CLOUD_FILES_TABLE);
+  db.exec(CREATE_STICKERS_TABLE);
 
   // Migrations: add missing columns before creating indexes
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
@@ -159,7 +175,7 @@ export function initTeamDatabase(teamDir: string): void {
     db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT");
   }
 
-  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES]) {
+  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES, ...STICKER_INDEXES]) {
     db.exec(sql);
   }
 
@@ -390,4 +406,43 @@ export function getCloudStats(teamName: string): CloudStats {
     totalDirs: dirRow.count,
     byUser: userRows,
   };
+}
+
+// ─── Sticker CRUD ─────────────────────────────────────────────
+
+export interface StickerRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  filename: string;
+  size: number;
+  mime_type: string;
+  created_at: number;
+}
+
+export function insertSticker(teamName: string, record: Omit<StickerRecord, "id" | "created_at">): StickerRecord {
+  const db = getDb(teamName);
+  const id = randomUUID();
+  const created_at = Date.now();
+  db.prepare(
+    "INSERT INTO stickers (id, user_id, name, filename, size, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, record.user_id, record.name, record.filename, record.size, record.mime_type, created_at);
+  return { ...record, id, created_at };
+}
+
+export function listStickersByUser(teamName: string, userId: string): StickerRecord[] {
+  const db = getDb(teamName);
+  return db.prepare("SELECT * FROM stickers WHERE user_id = ? ORDER BY created_at DESC").all(userId) as StickerRecord[];
+}
+
+export function getStickerById(teamName: string, stickerId: string): StickerRecord | null {
+  const db = getDb(teamName);
+  const row = db.prepare("SELECT * FROM stickers WHERE id = ?").get(stickerId) as StickerRecord | undefined;
+  return row ?? null;
+}
+
+export function deleteSticker(teamName: string, stickerId: string): boolean {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM stickers WHERE id = ?").run(stickerId);
+  return info.changes > 0;
 }
