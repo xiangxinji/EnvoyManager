@@ -15,6 +15,8 @@ export interface InsertMessageInput {
   content: string;
   extra?: Record<string, unknown>;
   source?: string;
+  channel?: string;
+  mentions?: string;
 }
 
 export interface StoredMessage {
@@ -27,6 +29,8 @@ export interface StoredMessage {
   content: string;
   extra: string | null;
   source: string;
+  channel: string | null;
+  mentions: string | null;
   created_at: number;
 }
 
@@ -87,6 +91,7 @@ CREATE TABLE IF NOT EXISTS messages (
 const MESSAGE_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_sync ON messages(seq)",
   "CREATE INDEX IF NOT EXISTS idx_conversation ON messages(from_user, to_user)",
+  "CREATE INDEX IF NOT EXISTS idx_channel ON messages(channel)",
 ];
 
 const CREATE_TASKS_TABLE = `
@@ -150,6 +155,12 @@ export function initTeamDatabase(teamDir: string): void {
   if (!columns.some((c) => c.name === "source")) {
     db.exec("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'human'");
   }
+  if (!columns.some((c) => c.name === "channel")) {
+    db.exec("ALTER TABLE messages ADD COLUMN channel TEXT");
+  }
+  if (!columns.some((c) => c.name === "mentions")) {
+    db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT");
+  }
 
   const teamName = teamDir.split(/[/\\]/).pop()!;
   teamDbs.set(teamName, db);
@@ -188,12 +199,14 @@ export function insertMessage(teamName: string, input: InsertMessageInput): { id
   const id = randomUUID();
   const extra = input.extra ? JSON.stringify(input.extra) : null;
   const source = input.source ?? "human";
+  const channel = input.channel ?? null;
+  const mentions = input.mentions ?? null;
   const created_at = Date.now();
 
   const stmt = db.prepare(
-    "INSERT INTO messages (id, type, subtype, from_user, to_user, content, extra, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO messages (id, type, subtype, from_user, to_user, content, extra, source, channel, mentions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
-  const info = stmt.run(id, input.type, input.subtype ?? null, input.from_user, input.to_user, input.content, extra, source, created_at);
+  const info = stmt.run(id, input.type, input.subtype ?? null, input.from_user, input.to_user, input.content, extra, source, channel, mentions, created_at);
 
   return { id, seq: info.lastInsertRowid as number };
 }
@@ -207,7 +220,7 @@ export function queryMessages(teamName: string, opts: {
   const { user, after_seq, limit } = opts;
 
   const rows = db.prepare(
-    "SELECT * FROM messages WHERE (from_user = ? OR to_user = ?) AND seq > ? ORDER BY seq ASC LIMIT ?"
+    "SELECT * FROM messages WHERE ((from_user = ? OR to_user = ?) OR channel = 'general') AND seq > ? ORDER BY seq ASC LIMIT ?"
   ).all(user, user, after_seq, limit + 1) as StoredMessage[];
 
   const has_more = rows.length > limit;
@@ -228,7 +241,7 @@ export function queryConversations(teamName: string, user: string): Conversation
         CASE WHEN from_user = ? THEN to_user ELSE from_user END AS peer,
         MAX(seq) AS max_seq
       FROM messages
-      WHERE from_user = ? OR to_user = ?
+      WHERE (from_user = ? OR to_user = ?) AND channel IS NULL
       GROUP BY peer
     ) latest ON m.seq = latest.max_seq
     ORDER BY m.seq DESC

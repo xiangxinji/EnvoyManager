@@ -96,9 +96,16 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown }>();
-    if (!body.from || !body.to || !body.text) {
-      return c.json({ error: "from, to, text are required" }, 400);
+    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; channel?: string; mentions?: string[] }>();
+    if (!body.from || !body.text) {
+      return c.json({ error: "from, text are required" }, 400);
+    }
+
+    // Channel message: to is optional, auto-set to "__team__"
+    const isChannel = !!body.channel;
+    const toUser = body.to ?? (isChannel ? "__team__" : undefined);
+    if (!toUser) {
+      return c.json({ error: "to is required for private messages" }, 400);
     }
 
     const payload: Record<string, unknown> = { text: body.text };
@@ -112,22 +119,54 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     if (body.forwarded) extra.forwarded = body.forwarded;
     if (body.quote) extra.quote = body.quote;
 
+    // Keep "all" as-is in mentions for storage (client expands for highlighting)
+    const mentionsList = body.mentions ?? [];
+    const mentionsJson = mentionsList.length > 0 ? JSON.stringify(mentionsList) : undefined;
+
+    if (isChannel) {
+      payload.channel = body.channel;
+      extra.channel = body.channel;
+    }
+    if (mentionsList.length > 0) {
+      payload.mentions = mentionsList;
+      extra.mentions = mentionsList;
+    }
+
     // Insert to SQLite first
     const { id, seq } = insertMessage(teamName, {
       type: "chat",
       subtype: "chat",
       from_user: body.from,
-      to_user: body.to,
+      to_user: toUser,
       content: body.text,
       extra: Object.keys(extra).length > 0 ? extra : undefined,
       source: body.source,
+      channel: isChannel ? body.channel : undefined,
+      mentions: mentionsJson,
     });
 
     // Inject server ID and seq into relay payload
     payload.id = id;
     payload.seq = seq;
 
-    team.innerServer.relay(body.from, body.to, "chat", payload);
+    // Broadcast or relay
+    if (isChannel) {
+      team.broadcastChat(body.from, "chat", payload);
+      // Send @mention notify to mentioned members
+      const notifyTargets = mentionsList.includes("all")
+        ? team.getOnlineMemberIds().filter((id: string) => id !== body.from)
+        : mentionsList.filter((id: string) => id !== body.from);
+      for (const mentionedId of notifyTargets) {
+        team.innerServer.notify(mentionedId, "channel-mention", {
+          from: body.from,
+          channel: body.channel,
+          text: body.text.substring(0, 50),
+          msgId: id,
+        });
+      }
+    } else {
+      team.innerServer.relay(body.from, toUser, "chat", payload);
+    }
     return c.json({ ok: true, id, seq });
   });
 
@@ -149,7 +188,11 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const deleted = deleteMessage(teamName, msgId);
     if (!deleted) return c.json({ error: "message not found" }, 404);
 
-    team.innerServer.relay(msg.from_user, msg.to_user, "chat-revoke", { msgId });
+    if (msg.channel) {
+      team.broadcastChat(msg.from_user, "chat-revoke", { msgId });
+    } else {
+      team.innerServer.relay(msg.from_user, msg.to_user, "chat-revoke", { msgId });
+    }
     return c.json({ ok: true });
   });
 
