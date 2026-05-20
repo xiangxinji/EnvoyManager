@@ -10,6 +10,8 @@ import {
   deleteCloudFile,
   deleteCloudDirRecursive,
   getCloudStats,
+  searchCloudFiles,
+  validateCloudPaths,
   type CloudFileRecord,
 } from "../db.js";
 
@@ -299,6 +301,47 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
     }
 
     return c.json({ ok: true });
+  });
+
+  // ─── Search files ──────────────────────────────────────────
+
+  app.get("/api/cloud/search", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const query = c.req.query("q") ?? "";
+    if (!query || query.length > 200) return c.json([]);
+
+    const results = searchCloudFiles(teamName, query);
+    return c.json(results.map((item: CloudFileRecord) => ({
+      name: item.name,
+      path: item.path + item.name + (item.type === "directory" ? "/" : ""),
+      type: item.type,
+      size: item.size,
+    })));
+  });
+
+  // ─── Validate paths ───────────────────────────────────────
+
+  app.post("/api/cloud/validate", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const body = await c.req.json<{ paths?: string[] }>();
+    if (!body.paths || !Array.isArray(body.paths)) {
+      return c.json({ error: "paths array is required" }, 400);
+    }
+    if (body.paths.length > 100) {
+      return c.json({ error: "too many paths (max 100)" }, 400);
+    }
+
+    return c.json(validateCloudPaths(teamName, body.paths));
   });
 
   // ─── Stats ─────────────────────────────────────────────────

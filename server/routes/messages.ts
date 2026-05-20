@@ -96,7 +96,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; sticker?: unknown; channel?: string; mentions?: string[] }>();
+    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; sticker?: unknown; channel?: string; mentions?: string[]; cloudRefs?: unknown[] }>();
     if (!body.from || !body.text) {
       return c.json({ error: "from, text are required" }, 400);
     }
@@ -114,12 +114,14 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     if (body.forwarded) payload.forwarded = body.forwarded;
     if (body.quote) payload.quote = body.quote;
     if (body.sticker) payload.sticker = body.sticker;
+    if (body.cloudRefs) payload.cloudRefs = body.cloudRefs;
 
     const extra: Record<string, unknown> = {};
     if (body.attachments) extra.attachments = body.attachments;
     if (body.forwarded) extra.forwarded = body.forwarded;
     if (body.quote) extra.quote = body.quote;
     if (body.sticker) extra.sticker = body.sticker;
+    if (body.cloudRefs) extra.cloudRefs = body.cloudRefs;
 
     // Keep "all" as-is in mentions for storage (client expands for highlighting)
     const mentionsList = body.mentions ?? [];

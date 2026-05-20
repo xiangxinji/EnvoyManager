@@ -393,6 +393,36 @@ export function deleteCloudDirRecursive(teamName: string, dirPath: string): numb
   return self.changes + children.changes;
 }
 
+export function searchCloudFiles(teamName: string, query: string, limit = 20): CloudFileRecord[] {
+  const db = getDb(teamName);
+  const pattern = `%${query.replace(/[%_]/g, "\\$&")}%`;
+  return db.prepare(
+    "SELECT * FROM cloud_files WHERE name LIKE ? ESCAPE '\\' ORDER BY type DESC, name ASC LIMIT ?"
+  ).all(pattern, limit) as CloudFileRecord[];
+}
+
+export function validateCloudPaths(teamName: string, paths: string[]): Record<string, boolean> {
+  const db = getDb(teamName);
+  const result: Record<string, boolean> = {};
+  for (const rawPath of paths) {
+    const isDir = rawPath.endsWith("/");
+    if (isDir) {
+      const parts = rawPath.replace(/\/$/, "").split("/");
+      const dirName = parts.pop()!;
+      const parentPath = parts.length > 0 ? parts.join("/") + "/" : "";
+      const row = db.prepare("SELECT 1 FROM cloud_files WHERE path = ? AND name = ? AND type = 'directory'").get(parentPath, dirName);
+      result[rawPath] = !!row;
+    } else {
+      const parts = rawPath.split("/");
+      const fileName = parts.pop()!;
+      const dirPath = parts.length > 0 ? parts.join("/") + "/" : "";
+      const row = db.prepare("SELECT 1 FROM cloud_files WHERE path = ? AND name = ? AND type = 'file'").get(dirPath, fileName);
+      result[rawPath] = !!row;
+    }
+  }
+  return result;
+}
+
 export function getCloudStats(teamName: string): CloudStats {
   const db = getDb(teamName);
   const fileRow = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as total FROM cloud_files WHERE type = 'file'").get() as { count: number; total: number };
