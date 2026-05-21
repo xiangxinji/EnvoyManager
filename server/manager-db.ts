@@ -346,9 +346,13 @@ export function deleteUser(username: string): boolean {
   if (user?.avatar_url) {
     const filename = user.avatar_url.split("/").pop();
     if (filename) {
-      const filePath = join(AVATARS_DIR, filename);
-      if (existsSync(filePath)) {
-        try { unlinkSync(filePath); } catch { /* ignore */ }
+      // Only delete the avatar file if no other user references the same hash
+      const others = getDb().prepare("SELECT COUNT(*) as cnt FROM users WHERE avatar_url = ? AND username != ?").get(user.avatar_url, username) as { cnt: number };
+      if (others.cnt === 0) {
+        const filePath = join(AVATARS_DIR, filename);
+        if (existsSync(filePath)) {
+          try { unlinkSync(filePath); } catch { /* ignore */ }
+        }
       }
     }
   }

@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { join } from "node:path";
+import { existsSync, unlinkSync } from "node:fs";
 import sharp from "sharp";
 import {
   loadUsers,
@@ -52,7 +53,7 @@ export default function userRoutes(app: Hono) {
     if (users.some((u) => u.username === username)) return c.json({ error: "user already exists" }, 409);
 
     const hashed = await hashPassword(password);
-    const created = await upsertUser({ username, password: hashed, role, responsibilities, capabilities, nickname });
+    const created = await upsertUser({ username, password: hashed, role, responsibilities, capabilities, nickname, avatar_url: null });
     console.log(`[user-created] ${username} (${role})`);
     return c.json({ username, role, responsibilities, capabilities, nickname, createdAt: created.createdAt }, 201);
   });
@@ -95,14 +96,33 @@ export default function userRoutes(app: Hono) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const destPath = join(AVATARS_DIR, `${username}.webp`);
 
-    await sharp(buffer)
-      .resize(512, 512, { fit: "cover" })
-      .webp({ quality: 80 })
-      .toFile(destPath);
+    // Compute hash of original file content for deduplication
+    const contentHash = createHash("sha256").update(buffer).digest("hex").slice(0, 16);
+    const destPath = join(AVATARS_DIR, `${contentHash}.webp`);
 
-    const avatarUrl = `/avatars/${username}.webp`;
+    // If avatar with same hash already exists, skip writing
+    if (!existsSync(destPath)) {
+      await sharp(buffer)
+        .resize(512, 512, { fit: "cover" })
+        .webp({ quality: 80 })
+        .toFile(destPath);
+    }
+
+    // Delete old avatar file if it differs from the new one
+    const oldAvatarUrl = user.avatar_url;
+    if (oldAvatarUrl) {
+      const oldMatch = oldAvatarUrl.match(/^\/avatars\/(.+\.webp)$/);
+      if (oldMatch) {
+        const oldFileName = oldMatch[1];
+        if (oldFileName !== `${contentHash}.webp`) {
+          const oldPath = join(AVATARS_DIR, oldFileName);
+          try { unlinkSync(oldPath); } catch { /* ignore */ }
+        }
+      }
+    }
+
+    const avatarUrl = `/avatars/${contentHash}.webp`;
     await upsertUser({ username, password: user.password, role: user.role, responsibilities: user.responsibilities, capabilities: user.capabilities, nickname: user.nickname, avatar_url: avatarUrl, createdAt: user.createdAt });
 
     return c.json({ avatar_url: avatarUrl });
