@@ -147,11 +147,19 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
       const user = userMap.get(m.username);
       return {
         username: m.username,
+        nickname: user?.nickname ?? null,
+        avatar_url: user?.avatar_url ?? null,
         responsibilities: user?.responsibilities ?? m.responsibilities ?? "",
         capabilities: user?.capabilities ?? m.capabilities ?? "",
       };
     });
-    return c.json({ leader: meta.leader, members });
+    const leaderUser = userMap.get(meta.leader);
+    const leader = {
+      username: meta.leader,
+      nickname: leaderUser?.nickname ?? null,
+      avatar_url: leaderUser?.avatar_url ?? null,
+    };
+    return c.json({ leader, members });
   });
 
   // Add member to team
