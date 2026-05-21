@@ -183,4 +183,18 @@ export default function userRoutes(app: Hono) {
 
     return c.json({ ok: true, username: user.username, role: user.role, token });
   });
+
+  // Verify password without creating a session (used for unlock)
+  app.post("/api/auth/verify", async (c) => {
+    const body = await c.req.json<{ username?: string; password?: string }>();
+    const username = body.username?.trim();
+    const encryptedPassword = body.password;
+    if (!username || !encryptedPassword) return c.json({ error: "username and password are required" }, 400);
+
+    const password = decryptWithPrivateKey(encryptedPassword);
+    const user = await authenticate(username, password);
+    if (!user) return c.json({ error: "invalid credentials" }, 401);
+
+    return c.json({ ok: true });
+  });
 }
