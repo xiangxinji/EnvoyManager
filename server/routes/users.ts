@@ -118,7 +118,7 @@ export default function userRoutes(app: Hono) {
     const users = await loadUsers();
     const result = users
       .filter((u) => names.includes(u.username))
-      .map((u) => ({ username: u.username, nickname: u.nickname ?? null, avatar_url: u.avatar_url ?? null }));
+      .map((u) => ({ username: u.username, nickname: u.nickname ?? null, avatar_url: u.avatar_url ?? null, responsibilities: u.responsibilities ?? "", capabilities: u.capabilities ?? "" }));
     return c.json(result);
   });
 
@@ -126,15 +126,17 @@ export default function userRoutes(app: Hono) {
 
   app.patch("/api/users/:username/profile", async (c) => {
     const username = c.req.param("username");
-    const body = await c.req.json<{ nickname?: string | null }>();
+    const body = await c.req.json<{ nickname?: string | null; responsibilities?: string; capabilities?: string }>();
     const users = await loadUsers();
     const user = users.find((u) => u.username === username);
     if (!user) return c.json({ error: "user not found" }, 404);
 
     const nickname = body.nickname !== undefined ? (body.nickname?.trim() || null) : user.nickname;
-    await upsertUser({ username, password: user.password, role: user.role, responsibilities: user.responsibilities, capabilities: user.capabilities, nickname, avatar_url: user.avatar_url, createdAt: user.createdAt });
+    const responsibilities = body.responsibilities !== undefined ? body.responsibilities.trim() : user.responsibilities;
+    const capabilities = body.capabilities !== undefined ? body.capabilities.trim() : user.capabilities;
+    await upsertUser({ username, password: user.password, role: user.role, responsibilities, capabilities, nickname, avatar_url: user.avatar_url, createdAt: user.createdAt });
 
-    return c.json({ ok: true, nickname, avatar_url: user.avatar_url ?? null });
+    return c.json({ ok: true, nickname, avatar_url: user.avatar_url ?? null, responsibilities, capabilities });
   });
 
   app.delete("/api/users/:username", async (c) => {
