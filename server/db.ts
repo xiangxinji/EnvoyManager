@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS stickers (
 
 const STICKER_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_sticker_user ON stickers(user_id)",
+  "CREATE INDEX IF NOT EXISTS idx_sticker_hash ON stickers(file_hash)",
 ];
 
 // ─── Init ─────────────────────────────────────────────────────
@@ -173,6 +174,11 @@ export function initTeamDatabase(teamDir: string): void {
   }
   if (!columns.some((c) => c.name === "mentions")) {
     db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT");
+  }
+
+  const stickerColumns = db.prepare("PRAGMA table_info(stickers)").all() as Array<{ name: string }>;
+  if (!stickerColumns.some((c) => c.name === "file_hash")) {
+    db.exec("ALTER TABLE stickers ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''");
   }
 
   for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES, ...STICKER_INDEXES]) {
@@ -447,6 +453,7 @@ export interface StickerRecord {
   filename: string;
   size: number;
   mime_type: string;
+  file_hash: string;
   created_at: number;
 }
 
@@ -455,8 +462,8 @@ export function insertSticker(teamName: string, record: Omit<StickerRecord, "id"
   const id = randomUUID();
   const created_at = Date.now();
   db.prepare(
-    "INSERT INTO stickers (id, user_id, name, filename, size, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, record.user_id, record.name, record.filename, record.size, record.mime_type, created_at);
+    "INSERT INTO stickers (id, user_id, name, filename, size, mime_type, file_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, record.user_id, record.name, record.filename, record.size, record.mime_type, record.file_hash, created_at);
   return { ...record, id, created_at };
 }
 
@@ -475,4 +482,22 @@ export function deleteSticker(teamName: string, stickerId: string): boolean {
   const db = getDb(teamName);
   const info = db.prepare("DELETE FROM stickers WHERE id = ?").run(stickerId);
   return info.changes > 0;
+}
+
+export function collectSticker(teamName: string, stickerId: string, userId: string): StickerRecord | null {
+  const original = getStickerById(teamName, stickerId);
+  if (!original) return null;
+  if (original.user_id === userId) return null;
+  // Check if already collected (same file_hash by same user)
+  const db = getDb(teamName);
+  const existing = db.prepare("SELECT id FROM stickers WHERE user_id = ? AND file_hash = ?").get(userId, original.file_hash) as { id: string } | undefined;
+  if (existing) return null;
+  return insertSticker(teamName, {
+    user_id: userId,
+    name: original.name,
+    filename: original.filename,
+    size: original.size,
+    mime_type: original.mime_type,
+    file_hash: original.file_hash,
+  });
 }
