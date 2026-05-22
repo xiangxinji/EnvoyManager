@@ -511,11 +511,19 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const body = await c.req.json<{ sticker_id?: string; user_id?: string }>();
     if (!body.sticker_id || !body.user_id) return c.json({ error: "sticker_id and user_id are required" }, 400);
 
-    const record = collectSticker(teamName, body.sticker_id, body.user_id);
-    if (!record) return c.json({ error: "sticker not found or already collected" }, 409);
+    const result = collectSticker(teamName, body.sticker_id, body.user_id);
+    if (!result.ok) {
+      const status = result.reason === "not_found" ? 404 : 409;
+      const messages: Record<string, string> = {
+        not_found: "sticker not found",
+        own_sticker: "cannot collect your own sticker",
+        already_collected: "sticker already in your collection",
+      };
+      return c.json({ error: messages[result.reason] }, status);
+    }
 
-    const url = `/api/stickers/files/${record.filename}`;
-    return c.json({ ok: true, sticker: { id: record.id, name: record.name, url, size: record.size, mimeType: record.mime_type } });
+    const url = `/api/stickers/files/${result.sticker.filename}`;
+    return c.json({ ok: true, sticker: { id: result.sticker.id, name: result.sticker.name, url, size: result.sticker.size, mimeType: result.sticker.mime_type } });
   });
 
   // List stickers

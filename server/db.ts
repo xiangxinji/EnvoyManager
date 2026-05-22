@@ -484,15 +484,19 @@ export function deleteSticker(teamName: string, stickerId: string): boolean {
   return info.changes > 0;
 }
 
-export function collectSticker(teamName: string, stickerId: string, userId: string): StickerRecord | null {
+export type CollectResult =
+  | { ok: true; sticker: StickerRecord }
+  | { ok: false; reason: "not_found" | "own_sticker" | "already_collected" };
+
+export function collectSticker(teamName: string, stickerId: string, userId: string): CollectResult {
   const original = getStickerById(teamName, stickerId);
-  if (!original) return null;
-  if (original.user_id === userId) return null;
+  if (!original) return { ok: false, reason: "not_found" };
+  if (original.user_id === userId) return { ok: false, reason: "own_sticker" };
   // Check if already collected (same file_hash by same user)
   const db = getDb(teamName);
   const existing = db.prepare("SELECT id FROM stickers WHERE user_id = ? AND file_hash = ?").get(userId, original.file_hash) as { id: string } | undefined;
-  if (existing) return null;
-  return insertSticker(teamName, {
+  if (existing) return { ok: false, reason: "already_collected" };
+  const sticker = insertSticker(teamName, {
     user_id: userId,
     name: original.name,
     filename: original.filename,
@@ -500,4 +504,5 @@ export function collectSticker(teamName: string, stickerId: string, userId: stri
     mime_type: original.mime_type,
     file_hash: original.file_hash,
   });
+  return { ok: true, sticker };
 }
