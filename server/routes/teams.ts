@@ -221,6 +221,20 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     }));
   });
 
+  app.get("/api/teams/:name/members/:id/task-stats", async (c) => {
+    const name = c.req.param("name");
+    const memberId = c.req.param("id");
+    const instance = teams.get(name);
+    if (!instance) return c.json({ error: "team not found" }, 404);
+    const tasks = queryTasks(name);
+    const counts = { pending: 0, running: 0, reviewing: 0, completed: 0, failed: 0 };
+    for (const t of tasks) {
+      if (!t.subscribe.includes(memberId)) continue;
+      if (t.status in counts) counts[t.status as keyof typeof counts]++;
+    }
+    return c.json(counts);
+  });
+
   app.get("/api/teams/:name/tasks/:id", async (c) => {
     const name = c.req.param("name");
     const instance = teams.get(name);
