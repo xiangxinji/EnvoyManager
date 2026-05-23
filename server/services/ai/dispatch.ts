@@ -10,8 +10,9 @@ interface DispatchRequest {
 }
 
 const dispatchSchema = z.object({
-  subscribe: z.array(z.string()).describe("匹配到的成员 ID 列表"),
-  content: z.string().describe("优化后的任务描述"),
+  subscribe: z.array(z.string()).describe("所有匹配到的成员 ID 列表。任务涉及几个领域就分配几个人，不要只选一个"),
+  content: z.string().describe("优化后的任务描述，说明每人负责的部分"),
+  mode: z.enum(["serial", "parallel"]).describe("派发模式：parallel=各成员同时工作，serial=按顺序依次执行"),
 });
 
 export async function handleTaskDispatch(c: Context, resolved: ResolvedScene) {
