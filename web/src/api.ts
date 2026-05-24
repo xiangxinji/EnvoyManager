@@ -110,11 +110,55 @@ async function getPublicKey(): Promise<string> {
   return data.key as string;
 }
 
+let reloginPromise: Promise<boolean> | null = null;
+
+async function tryRelogin(): Promise<boolean> {
+  const saved = localStorage.getItem("admin_credentials");
+  if (!saved) return false;
+  try {
+    const { username, password } = JSON.parse(saved);
+    const res = await api.adminAuth(username, password);
+    localStorage.setItem("admin_token", res.token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (res.status === 401) {
+    // Try silent re-login once
+    if (!reloginPromise) {
+      reloginPromise = tryRelogin();
+    }
+    const recovered = await reloginPromise;
+    reloginPromise = null;
+
+    if (recovered) {
+      // Retry original request with fresh token
+      const retryHeaders = new Headers(init?.headers);
+      const token = localStorage.getItem("admin_token") || "";
+      retryHeaders.set("Authorization", `Bearer ${token}`);
+      const retryRes = await fetch(`${BASE}${path}`, { ...init, headers: retryHeaders });
+      if (retryRes.status === 401) {
+        // Fresh token also rejected — give up
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_credentials");
+        window.location.href = "/login";
+        throw new Error("unauthorized");
+      }
+      if (!retryRes.ok) {
+        const err = await retryRes.json().catch(() => ({ error: retryRes.statusText }));
+        throw new Error(err.error || "Request failed");
+      }
+      return retryRes.json();
+    }
+
+    // Recovery failed — redirect to login
     if (localStorage.getItem("admin_token")) {
       localStorage.removeItem("admin_token");
+      localStorage.removeItem("admin_credentials");
       window.location.href = "/login";
     }
     throw new Error("unauthorized");

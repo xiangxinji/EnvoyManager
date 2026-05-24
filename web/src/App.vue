@@ -18,6 +18,7 @@ function handleLogout() {
   if (!confirm("确定要退出登录吗？")) return;
   api.adminLogout().catch(() => {});
   localStorage.removeItem("admin_token");
+  localStorage.removeItem("admin_credentials");
   router.push("/login");
 }
 </script>
