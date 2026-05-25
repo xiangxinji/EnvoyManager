@@ -80,6 +80,8 @@ export interface UserProfile {
 
 export interface TeamMember {
   username: string;
+  nickname?: string | null;
+  avatar_url?: string | null;
   responsibilities?: string;
   capabilities?: string;
 }
@@ -175,7 +177,7 @@ export const api = {
   getTeams: () => request<TeamInfo[]>("/teams"),
   getTeam: (name: string) => request<TeamInfo>(`/teams/${name}`),
   getConfiguredMembers: (name: string) =>
-    request<{ leader: string; members: TeamMember[] }>(`/teams/${name}/configured-members`),
+    request<{ leader: { username: string; nickname: string | null; avatar_url: string | null }; members: TeamMember[] }>(`/teams/${name}/configured-members`),
   addTeamMember: (team: string, username: string, responsibilities?: string, capabilities?: string) =>
     request<{ ok: boolean }>(`/teams/${team}/members/${username}`, {
       method: "PUT",
@@ -378,5 +380,11 @@ export const api = {
   getCloudStats: (team: string) =>
     request<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/cloud/stats", {
       headers: { team },
+    }),
+
+  // Brains / Knowledge base
+  getBrainsStats: (team: string) =>
+    request<{ totalFiles: number; totalSize: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/brains/stats", {
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 };

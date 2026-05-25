@@ -1,12 +1,21 @@
 import type { Hono, Context, Next } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
 import { validateClientToken } from "./users.js";
+import { validateSession } from "./admin.js";
 import { mkdir, writeFile, readFile, rename, readdir, stat } from "node:fs/promises";
 import { join, dirname, resolve, sep } from "node:path";
 
 async function clientAuth(c: Context, next: Next) {
   const token = c.req.header("X-Envoy-Token") || c.req.query("token");
   if (!token || !validateClientToken(token)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  await next();
+}
+
+async function adminAuth(c: Context, next: Next) {
+  const token = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (!token || !validateSession(token)) {
     return c.json({ error: "unauthorized" }, 401);
   }
   await next();
@@ -215,5 +224,44 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
     await saveMeta(userDir, meta);
 
     return c.json({ ok: true });
+  });
+
+  // ─── GET /api/brains/stats — Per-user brains stats (admin) ────
+
+  app.get("/api/brains/stats", adminAuth, async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+    if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
+
+    const brainsRoot = resolve(join(process.env.HOME || "", ".envoy", "teams", teamName, "brains"));
+    const byUser: Array<{ user: string; fileCount: number; totalSize: number }> = [];
+    let totalFiles = 0;
+    let totalSize = 0;
+
+    let entries;
+    try {
+      entries = await readdir(brainsRoot, { withFileTypes: true });
+    } catch {
+      return c.json({ totalFiles: 0, totalSize: 0, byUser: [] });
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const userDir = resolve(brainsRoot, entry.name);
+      const meta = await loadMeta(userDir);
+      let userFiles = 0;
+      let userSize = 0;
+      for (const info of Object.values(meta)) {
+        userFiles++;
+        userSize += info.size;
+      }
+      totalFiles += userFiles;
+      totalSize += userSize;
+      if (userFiles > 0) {
+        byUser.push({ user: entry.name, fileCount: userFiles, totalSize: userSize });
+      }
+    }
+
+    return c.json({ totalFiles, totalSize, byUser });
   });
 }

@@ -10,7 +10,7 @@ const members = ref<ServerClientInfo[]>([]);
 const tasks = ref<TaskInfo[]>([]);
 const loading = ref(true);
 const error = ref("");
-const teamLeader = ref("");
+const teamLeader = ref<{ username: string; nickname?: string | null; avatar_url?: string | null }>({ username: "" });
 const configuredMembers = ref<TeamMember[]>([]);
 const allUsers = ref<UserInfo[]>([]);
 const showAddMember = ref(false);
@@ -19,6 +19,7 @@ const addResponsibilities = ref("");
 const addCapabilities = ref("");
 const adding = ref(false);
 const cloudStats = ref<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> } | null>(null);
+const brainsStats = ref<{ totalFiles: number; totalSize: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> } | null>(null);
 let timer: ReturnType<typeof setInterval>;
 
 async function refresh() {
@@ -41,6 +42,12 @@ async function refresh() {
     } catch {
       cloudStats.value = null;
     }
+    // Load brains stats
+    try {
+      brainsStats.value = await api.getBrainsStats(props.name);
+    } catch {
+      brainsStats.value = null;
+    }
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -50,7 +57,7 @@ async function refresh() {
 
 const existingUsernames = computed(() => {
   const set = new Set(configuredMembers.value.map((m) => m.username));
-  set.add(teamLeader.value);
+  set.add(teamLeader.value.username);
   return set;
 });
 
@@ -120,11 +127,11 @@ function formatCloudSize(bytes: number): string {
 
         <div class="member-list">
           <div class="member-item leader">
-            <span class="member-name">{{ teamLeader }}</span>
+            <span class="member-name">{{ teamLeader.nickname || teamLeader.username }}</span>
             <span class="role-badge leader-badge">Leader</span>
           </div>
           <div v-for="m in configuredMembers" :key="m.username" class="member-item">
-            <span class="member-name">{{ m.username }}</span>
+            <span class="member-name">{{ m.nickname || m.username }}</span>
             <div class="member-desc-group">
               <span class="member-resp">{{ m.responsibilities || '-' }}</span>
               <span class="member-cap" :class="{ 'empty-cap': !m.capabilities }">{{ m.capabilities || '未设置' }}</span>
@@ -164,6 +171,26 @@ function formatCloudSize(bytes: number): string {
         </div>
         <div v-if="cloudStats.byUser.length > 0" class="cloud-user-list">
           <div v-for="u in cloudStats.byUser" :key="u.user" class="cloud-user-row">
+            <span class="cloud-user-name">{{ u.user }}</span>
+            <span class="cloud-user-info">{{ u.fileCount }} 文件 · {{ formatCloudSize(u.totalSize) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="brainsStats" class="section">
+        <h2 class="section-title">知识库</h2>
+        <div class="cloud-stats-grid">
+          <div class="stat-card">
+            <span class="stat-value">{{ brainsStats.totalFiles }}</span>
+            <span class="stat-label">文件数</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ formatCloudSize(brainsStats.totalSize) }}</span>
+            <span class="stat-label">总大小</span>
+          </div>
+        </div>
+        <div v-if="brainsStats.byUser.length > 0" class="cloud-user-list">
+          <div v-for="u in brainsStats.byUser" :key="u.user" class="cloud-user-row">
             <span class="cloud-user-name">{{ u.user }}</span>
             <span class="cloud-user-info">{{ u.fileCount }} 文件 · {{ formatCloudSize(u.totalSize) }}</span>
           </div>
