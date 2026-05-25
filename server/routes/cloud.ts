@@ -1,8 +1,10 @@
-import type { Hono } from "hono";
+import type { Hono, Context, Next } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join, basename, resolve, dirname, sep } from "node:path";
 import { getCloudDir, loadMeta } from "../team-registry.js";
+import { validateSession } from "./admin.js";
+import { validateClientToken } from "./users.js";
 import {
   insertCloudFile,
   queryCloudDir,
@@ -15,7 +17,22 @@ import {
   type CloudFileRecord,
 } from "../db.js";
 
+async function dualAuth(c: Context, next: Next) {
+  const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (adminToken && validateSession(adminToken)) {
+    await next();
+    return;
+  }
+  const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
+  if (clientToken && validateClientToken(clientToken)) {
+    await next();
+    return;
+  }
+  return c.json({ error: "unauthorized" }, 401);
+}
+
 export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
+  app.use("/api/cloud/*", dualAuth);
   // ─── Path safety helper ────────────────────────────────────
 
   function resolveCloudPath(teamName: string, ...segments: string[]): string {
@@ -236,12 +253,15 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
 
     const rawPath = c.req.query("path") ?? "";
     const username = c.req.query("from");
-    if (!username) return c.json({ error: "from is required" }, 400);
 
-    // Leader check
-    const isLeader = await ensureLeader(teamName, username);
-    if (!isLeader) {
-      return c.json({ error: "only leader can delete" }, 403);
+    // Admin requests bypass the leader check
+    const isAdmin = !!validateSession(c.req.header("Authorization")?.replace("Bearer ", "") ?? "");
+    if (!isAdmin) {
+      if (!username) return c.json({ error: "from is required" }, 400);
+      const isLeader = await ensureLeader(teamName, username);
+      if (!isLeader) {
+        return c.json({ error: "only leader can delete" }, 403);
+      }
     }
 
     if (!rawPath) return c.json({ error: "path is required" }, 400);

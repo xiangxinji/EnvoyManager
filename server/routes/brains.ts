@@ -13,12 +13,18 @@ async function clientAuth(c: Context, next: Next) {
   await next();
 }
 
-async function adminAuth(c: Context, next: Next) {
-  const token = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (!token || !validateSession(token)) {
-    return c.json({ error: "unauthorized" }, 401);
+async function dualAuth(c: Context, next: Next) {
+  const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (adminToken && validateSession(adminToken)) {
+    await next();
+    return;
   }
-  await next();
+  const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
+  if (clientToken && validateClientToken(clientToken)) {
+    await next();
+    return;
+  }
+  return c.json({ error: "unauthorized" }, 401);
 }
 
 const META_FILE = "_meta.json";
@@ -61,7 +67,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
 
   // ─── POST /api/brains/sync — Batch upsert ───────────────────
 
-  app.post("/api/brains/sync", clientAuth, async (c) => {
+  app.post("/api/brains/sync", dualAuth, async (c) => {
     const teamName = c.req.header("team");
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
@@ -108,7 +114,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
 
   // ─── GET /api/brains/files — List files ───────────────────────
 
-  app.get("/api/brains/files", clientAuth, async (c) => {
+  app.get("/api/brains/files", dualAuth, async (c) => {
     const teamName = c.req.header("team");
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
@@ -158,7 +164,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
 
   // ─── GET /api/brains/download/* — Download file ──────────────
 
-  app.get("/api/brains/download/*", clientAuth, async (c) => {
+  app.get("/api/brains/download/*", dualAuth, async (c) => {
     const teamName = c.req.header("team");
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
@@ -191,7 +197,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
 
   // ─── POST /api/brains/rename — Server-side rename ────────────
 
-  app.post("/api/brains/rename", clientAuth, async (c) => {
+  app.post("/api/brains/rename", dualAuth, async (c) => {
     const teamName = c.req.header("team");
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
@@ -228,7 +234,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
 
   // ─── GET /api/brains/stats — Per-user brains stats (admin) ────
 
-  app.get("/api/brains/stats", adminAuth, async (c) => {
+  app.get("/api/brains/stats", dualAuth, async (c) => {
     const teamName = c.req.header("team");
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);

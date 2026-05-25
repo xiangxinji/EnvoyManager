@@ -1,112 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from "vue";
-import { api, type ServerClientInfo, type TaskInfo, type UserInfo, type TeamMember } from "../api";
-import MemberTable from "../components/MemberTable.vue";
-import TaskTable from "../components/TaskTable.vue";
+import { ref, watch } from "vue";
+import TeamOverview from "../components/TeamOverview.vue";
+import TeamMembers from "../components/TeamMembers.vue";
+import TeamTasks from "../components/TeamTasks.vue";
+import CloudBrowser from "../components/CloudBrowser.vue";
+import BrainsBrowser from "../components/BrainsBrowser.vue";
 
 const props = defineProps<{ name: string }>();
 
-const members = ref<ServerClientInfo[]>([]);
-const tasks = ref<TaskInfo[]>([]);
-const loading = ref(true);
-const error = ref("");
-const teamLeader = ref<{ username: string; nickname?: string | null; avatar_url?: string | null }>({ username: "" });
-const configuredMembers = ref<TeamMember[]>([]);
-const allUsers = ref<UserInfo[]>([]);
-const showAddMember = ref(false);
-const addUsername = ref("");
-const addResponsibilities = ref("");
-const addCapabilities = ref("");
-const adding = ref(false);
-const cloudStats = ref<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> } | null>(null);
-const brainsStats = ref<{ totalFiles: number; totalSize: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> } | null>(null);
-let timer: ReturnType<typeof setInterval>;
+const activeTab = ref("overview");
 
-async function refresh() {
-  try {
-    const [m, t, cfg, users] = await Promise.all([
-      api.getMembers(props.name),
-      api.getTasks(props.name),
-      api.getConfiguredMembers(props.name),
-      api.getUsers(),
-    ]);
-    members.value = m;
-    tasks.value = t;
-    teamLeader.value = cfg.leader;
-    configuredMembers.value = cfg.members;
-    allUsers.value = users;
-    error.value = "";
-    // Load cloud stats
-    try {
-      cloudStats.value = await api.getCloudStats(props.name);
-    } catch {
-      cloudStats.value = null;
-    }
-    // Load brains stats
-    try {
-      brainsStats.value = await api.getBrainsStats(props.name);
-    } catch {
-      brainsStats.value = null;
-    }
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    loading.value = false;
-  }
-}
+const tabs = [
+  { key: "overview", label: "概览" },
+  { key: "members", label: "成员" },
+  { key: "tasks", label: "任务" },
+  { key: "cloud", label: "云资源" },
+  { key: "brains", label: "知识库" },
+];
 
-const existingUsernames = computed(() => {
-  const set = new Set(configuredMembers.value.map((m) => m.username));
-  set.add(teamLeader.value.username);
-  return set;
+watch(() => props.name, () => {
+  activeTab.value = "overview";
 });
-
-const availableMembers = computed(() =>
-  allUsers.value.filter((u) => u.role === "member" && !existingUsernames.value.has(u.username))
-);
-
-async function handleAddMember() {
-  const username = addUsername.value;
-  if (!username) return;
-  adding.value = true;
-  try {
-    await api.addTeamMember(props.name, username, addResponsibilities.value || undefined, addCapabilities.value || undefined);
-    addUsername.value = "";
-    addResponsibilities.value = "";
-    addCapabilities.value = "";
-    showAddMember.value = false;
-    await refresh();
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    adding.value = false;
-  }
-}
-
-async function handleRemoveMember(username: string) {
-  try {
-    await api.removeTeamMember(props.name, username);
-    await refresh();
-  } catch (e: any) {
-    error.value = e.message;
-  }
-}
-
-watch(() => props.name, refresh);
-
-onMounted(() => {
-  refresh();
-  timer = setInterval(refresh, 5000);
-});
-
-onUnmounted(() => clearInterval(timer));
-
-function formatCloudSize(bytes: number): string {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
-}
 </script>
 
 <template>
@@ -115,114 +29,22 @@ function formatCloudSize(bytes: number): string {
       <h1 class="page-title">{{ name }}</h1>
     </div>
 
-    <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <div class="tab-bar">
+      <button
+        v-for="tab in tabs"
+        :key="tab.key"
+        class="tab-btn"
+        :class="{ active: activeTab === tab.key }"
+        @click="activeTab = tab.key"
+      >{{ tab.label }}</button>
+    </div>
 
-    <template v-else>
-      <section class="section">
-        <div class="section-header">
-          <h2 class="section-title">团队成员</h2>
-          <button class="btn-add" @click="showAddMember = true">添加成员</button>
-        </div>
-
-        <div class="member-list">
-          <div class="member-item leader">
-            <span class="member-name">{{ teamLeader.nickname || teamLeader.username }}</span>
-            <span class="role-badge leader-badge">Leader</span>
-          </div>
-          <div v-for="m in configuredMembers" :key="m.username" class="member-item">
-            <span class="member-name">{{ m.nickname || m.username }}</span>
-            <div class="member-desc-group">
-              <span class="member-resp">{{ m.responsibilities || '-' }}</span>
-              <span class="member-cap" :class="{ 'empty-cap': !m.capabilities }">{{ m.capabilities || '未设置' }}</span>
-            </div>
-            <span class="role-badge member-badge">Member</span>
-            <button class="btn-remove" @click="handleRemoveMember(m.username)" title="移除">x</button>
-          </div>
-          <div v-if="configuredMembers.length === 0" class="empty-hint">暂未绑定成员</div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h2 class="section-title">在线连接 ({{ members.length }})</h2>
-        <MemberTable :members="members" />
-      </section>
-
-      <section class="section">
-        <h2 class="section-title">任务 ({{ tasks.length }})</h2>
-        <TaskTable :tasks="tasks" :team="name" />
-      </section>
-
-      <section v-if="cloudStats" class="section">
-        <h2 class="section-title">云资源</h2>
-        <div class="cloud-stats-grid">
-          <div class="stat-card">
-            <span class="stat-value">{{ cloudStats.totalFiles }}</span>
-            <span class="stat-label">文件数</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{{ formatCloudSize(cloudStats.totalSize) }}</span>
-            <span class="stat-label">总大小</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{{ cloudStats.totalDirs }}</span>
-            <span class="stat-label">目录数</span>
-          </div>
-        </div>
-        <div v-if="cloudStats.byUser.length > 0" class="cloud-user-list">
-          <div v-for="u in cloudStats.byUser" :key="u.user" class="cloud-user-row">
-            <span class="cloud-user-name">{{ u.user }}</span>
-            <span class="cloud-user-info">{{ u.fileCount }} 文件 · {{ formatCloudSize(u.totalSize) }}</span>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="brainsStats" class="section">
-        <h2 class="section-title">知识库</h2>
-        <div class="cloud-stats-grid">
-          <div class="stat-card">
-            <span class="stat-value">{{ brainsStats.totalFiles }}</span>
-            <span class="stat-label">文件数</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{{ formatCloudSize(brainsStats.totalSize) }}</span>
-            <span class="stat-label">总大小</span>
-          </div>
-        </div>
-        <div v-if="brainsStats.byUser.length > 0" class="cloud-user-list">
-          <div v-for="u in brainsStats.byUser" :key="u.user" class="cloud-user-row">
-            <span class="cloud-user-name">{{ u.user }}</span>
-            <span class="cloud-user-info">{{ u.fileCount }} 文件 · {{ formatCloudSize(u.totalSize) }}</span>
-          </div>
-        </div>
-      </section>
-    </template>
-
-    <div v-if="showAddMember" class="modal-overlay" @click.self="showAddMember = false">
-      <div class="modal">
-        <h3>添加成员</h3>
-        <select v-model="addUsername">
-          <option value="" disabled>选择用户</option>
-          <option v-for="u in availableMembers" :key="u.username" :value="u.username">
-            {{ u.username }}
-          </option>
-        </select>
-        <p v-if="availableMembers.length === 0" class="hint">暂无可添加的 Member 用户</p>
-        <input
-          v-model="addResponsibilities"
-          placeholder="职责说明（可选）"
-        />
-        <input
-          v-model="addCapabilities"
-          placeholder="能力描述（可选）"
-        />
-        <div class="modal-actions">
-          <button class="btn-cancel" @click="showAddMember = false">取消</button>
-          <button class="btn-confirm" :disabled="adding || !addUsername" @click="handleAddMember">
-            {{ adding ? "添加中..." : "添加" }}
-          </button>
-        </div>
-      </div>
+    <div class="tab-content">
+      <TeamOverview v-if="activeTab === 'overview'" :team="name" />
+      <TeamMembers v-else-if="activeTab === 'members'" :team="name" />
+      <TeamTasks v-else-if="activeTab === 'tasks'" :team="name" />
+      <CloudBrowser v-else-if="activeTab === 'cloud'" :team="name" />
+      <BrainsBrowser v-else-if="activeTab === 'brains'" :team="name" />
     </div>
   </div>
 </template>
@@ -233,7 +55,7 @@ function formatCloudSize(bytes: number): string {
 }
 
 .detail-header {
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-lg);
 }
 
 .page-title {
@@ -250,282 +72,36 @@ function formatCloudSize(bytes: number): string {
   color: var(--error);
 }
 
-.section {
-  margin-bottom: var(--space-2xl);
-}
-
-.section-header {
+.tab-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-md);
-}
-
-.section-title {
-  font-size: 1em;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.btn-add {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.82em;
-  cursor: pointer;
-}
-
-.btn-add:hover {
-  background: var(--accent-hover);
-}
-
-.member-list {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.member-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 10px 16px;
+  gap: var(--space-xs);
   border-bottom: 1px solid var(--border);
-  font-size: 0.88em;
+  margin-bottom: var(--space-xl);
 }
 
-.member-item:last-child {
-  border-bottom: none;
-}
-
-.member-item.leader {
-  background: var(--bg-secondary);
-}
-
-.member-name {
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-.member-desc-group {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
-}
-
-.member-resp {
-  color: var(--text-muted);
-  font-size: 0.85em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.member-resp:empty::before {
-  content: '-';
-}
-
-.member-cap {
-  font-size: 0.82em;
-  padding: 1px 8px;
-  border-radius: var(--radius-sm);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.member-cap:not(.empty-cap) {
-  color: var(--accent);
-  background: var(--accent-light);
-}
-
-.member-cap.empty-cap {
-  color: var(--text-muted);
-  background: var(--bg-secondary);
-}
-
-.role-badge {
-  font-size: 0.75em;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-weight: 500;
-}
-
-.leader-badge {
-  background: var(--accent-light);
-  color: var(--accent);
-}
-
-.member-badge {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-}
-
-.btn-remove {
+.tab-btn {
   background: none;
   border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.9em;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
-
-.btn-remove:hover {
-  color: var(--error);
-  background: var(--bg-secondary);
-}
-
-.empty-hint {
-  padding: var(--space-lg);
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.modal {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-xl);
-  width: 380px;
-  box-shadow: var(--shadow-md);
-}
-
-.modal h3 {
-  margin-bottom: var(--space-lg);
-  font-size: 1.1em;
-}
-
-.modal select,
-.modal input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.9em;
-  outline: none;
-  margin-bottom: var(--space-md);
-}
-
-.modal select:focus,
-.modal input:focus {
-  border-color: var(--accent);
-}
-
-.hint {
-  color: var(--text-muted);
-  font-size: 0.8em;
-  margin-bottom: var(--space-sm);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm);
-}
-
-.btn-cancel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  padding: var(--space-sm) var(--space-lg);
   font-size: 0.88em;
-}
-
-.btn-confirm {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 0.88em;
-}
-
-.btn-confirm:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.cloud-stats-grid {
-  display: flex;
-  gap: var(--space-md);
-  margin-bottom: var(--space-md);
-}
-
-.stat-card {
-  flex: 1;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.stat-value {
-  font-size: 1.4em;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.stat-label {
-  font-size: 0.82em;
-  color: var(--text-muted);
-}
-
-.cloud-user-list {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.cloud-user-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.88em;
-}
-
-.cloud-user-row:last-child {
-  border-bottom: none;
-}
-
-.cloud-user-name {
   font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover {
   color: var(--text-primary);
 }
 
-.cloud-user-info {
-  color: var(--text-muted);
-  font-size: 0.85em;
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-content {
+  min-height: 400px;
 }
 </style>

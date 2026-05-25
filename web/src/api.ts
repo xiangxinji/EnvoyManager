@@ -379,12 +379,40 @@ export const api = {
   // Cloud resources
   getCloudStats: (team: string) =>
     request<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/cloud/stats", {
-      headers: { team },
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  getCloudFiles: (team: string, path?: string) =>
+    request<{ path: string; items: Array<{ id: number; name: string; type: string; size: number; uploadedBy: string; createdAt: number }> }>(`/cloud/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, {
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  deleteCloudFile: (team: string, path: string) =>
+    request<{ ok: boolean }>(`/cloud/files?path=${encodeURIComponent(path)}&from=admin`, {
+      method: "DELETE",
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  createCloudDir: (team: string, name: string, path?: string) =>
+    request<{ ok: boolean; item: { id: number; name: string } }>("/cloud/directories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      body: JSON.stringify({ name, path: path || "", createdBy: "admin" }),
+    }),
+
+  searchCloudFiles: (team: string, query: string) =>
+    request<Array<{ name: string; path: string; type: string; size: number }>>(`/cloud/search?q=${encodeURIComponent(query)}`, {
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
   // Brains / Knowledge base
   getBrainsStats: (team: string) =>
     request<{ totalFiles: number; totalSize: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/brains/stats", {
+      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  getBrainsFiles: (team: string, username: string, includeBackups = false) =>
+    request<{ files: Array<{ path: string; mtime_ms: number; size: number }> }>(`/brains/files?username=${encodeURIComponent(username)}&includeBackups=${includeBackups}`, {
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 };
