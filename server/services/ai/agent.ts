@@ -56,22 +56,16 @@ export async function handleAgentReason(c: Context, resolved: ResolvedScene) {
   for (const m of body.messages) {
     if (m.toolCalls) {
       flushToolResults();
-      const content: CoreMessage[] = [];
-      if (m.content) {
-        content.push({ role: "user", content: m.content });
-      }
-      for (const tc of m.toolCalls) {
-        content.push({
-          role: "assistant",
-          content: [{
-            type: "tool-call" as const,
-            toolCallId: tc.id,
-            toolName: tc.name,
-            args: tc.args,
-          }],
-        });
-      }
-      messages.push(...content as CoreMessage[]);
+      const toolCalls = m.toolCalls.map((tc) => ({
+        type: "tool-call" as const,
+        toolCallId: tc.id,
+        toolName: tc.name,
+        args: tc.args,
+      }));
+      messages.push({
+        role: "assistant",
+        content: toolCalls,
+      } as CoreMessage);
     } else if (m.toolCallId) {
       pendingToolResults.push({
         type: "tool-result",
