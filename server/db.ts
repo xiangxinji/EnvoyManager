@@ -117,7 +117,7 @@ const CREATE_CLOUD_FILES_TABLE = `
 CREATE TABLE IF NOT EXISTS cloud_files (
   id          TEXT PRIMARY KEY NOT NULL,
   name        TEXT NOT NULL,
-  path        TEXT NOT NULL,
+  parent_id   TEXT,
   type        TEXT NOT NULL DEFAULT 'file',
   size        INTEGER NOT NULL DEFAULT 0,
   uploaded_by TEXT NOT NULL,
@@ -126,8 +126,8 @@ CREATE TABLE IF NOT EXISTS cloud_files (
 )`;
 
 const CLOUD_FILE_INDEXES = [
-  "CREATE INDEX IF NOT EXISTS idx_cloud_path ON cloud_files(path)",
-  "CREATE INDEX IF NOT EXISTS idx_cloud_parent ON cloud_files(path, name)",
+  "CREATE INDEX IF NOT EXISTS idx_cloud_parent_id ON cloud_files(parent_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_parent_name ON cloud_files(parent_id, name)",
 ];
 
 const CREATE_STICKERS_TABLE = `
@@ -345,7 +345,7 @@ export function queryTaskById(teamName: string, taskId: string): TaskRow | null 
 export interface CloudFileRecord {
   id: string;
   name: string;
-  path: string;
+  parent_id: string | null;
   type: "file" | "directory";
   size: number;
   uploaded_by: string;
@@ -365,19 +365,30 @@ export function insertCloudFile(teamName: string, record: Omit<CloudFileRecord, 
   const id = randomUUID();
   const now = Date.now();
   db.prepare(
-    "INSERT INTO cloud_files (id, name, path, type, size, uploaded_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, record.name, record.path, record.type, record.size, record.uploaded_by, now, now);
-  return { ...record, id, created_at: now, updated_at: now };
+    "INSERT INTO cloud_files (id, name, parent_id, type, size, uploaded_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, record.name, record.parent_id ?? null, record.type, record.size, record.uploaded_by, now, now);
+  return { ...record, id, parent_id: record.parent_id ?? null, created_at: now, updated_at: now };
 }
 
-export function queryCloudDir(teamName: string, dirPath: string): CloudFileRecord[] {
+export function getCloudFileById(teamName: string, id: string): CloudFileRecord | undefined {
   const db = getDb(teamName);
-  return db.prepare("SELECT * FROM cloud_files WHERE path = ? ORDER BY type DESC, name ASC").all(dirPath) as CloudFileRecord[];
+  return db.prepare("SELECT * FROM cloud_files WHERE id = ?").get(id) as CloudFileRecord | undefined;
 }
 
-export function findCloudFile(teamName: string, path: string, name: string): CloudFileRecord | undefined {
+export function queryCloudDir(teamName: string, parentId: string | null): CloudFileRecord[] {
   const db = getDb(teamName);
-  return db.prepare("SELECT * FROM cloud_files WHERE path = ? AND name = ?").get(path, name) as CloudFileRecord | undefined;
+  if (parentId === null) {
+    return db.prepare("SELECT * FROM cloud_files WHERE parent_id IS NULL ORDER BY type DESC, name ASC").all() as CloudFileRecord[];
+  }
+  return db.prepare("SELECT * FROM cloud_files WHERE parent_id = ? ORDER BY type DESC, name ASC").all(parentId) as CloudFileRecord[];
+}
+
+export function findCloudFile(teamName: string, parentId: string | null, name: string): CloudFileRecord | undefined {
+  const db = getDb(teamName);
+  if (parentId === null) {
+    return db.prepare("SELECT * FROM cloud_files WHERE parent_id IS NULL AND name = ?").get(name) as CloudFileRecord | undefined;
+  }
+  return db.prepare("SELECT * FROM cloud_files WHERE parent_id = ? AND name = ?").get(parentId, name) as CloudFileRecord | undefined;
 }
 
 export function deleteCloudFile(teamName: string, id: string): boolean {
@@ -386,17 +397,21 @@ export function deleteCloudFile(teamName: string, id: string): boolean {
   return info.changes > 0;
 }
 
-export function deleteCloudDirRecursive(teamName: string, dirPath: string): number {
+export function deleteCloudDirRecursive(teamName: string, id: string): number {
   const db = getDb(teamName);
-  const prefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
-  // Extract parent path and dir name from the full path
-  // e.g. "t1/t2/" → parentPath="t1/", dirName="t2"; "spec/" → parentPath="", dirName="spec"
-  const parts = dirPath.replace(/\/$/, "").split("/");
-  const dirName = parts.pop()!;
-  const parentPath = parts.length > 0 ? parts.join("/") + "/" : "";
-  const self = db.prepare("DELETE FROM cloud_files WHERE path = ? AND name = ?").run(parentPath, dirName);
-  const children = db.prepare("DELETE FROM cloud_files WHERE path = ? OR path LIKE ?").run(dirPath, `${prefix}%`);
-  return self.changes + children.changes;
+  const idsToDelete: string[] = [id];
+  const queue: string[] = [id];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const children = db.prepare("SELECT id FROM cloud_files WHERE parent_id = ?").all(currentId) as Array<{ id: string }>;
+    for (const child of children) {
+      idsToDelete.push(child.id);
+      queue.push(child.id);
+    }
+  }
+  const placeholders = idsToDelete.map(() => "?").join(",");
+  const info = db.prepare(`DELETE FROM cloud_files WHERE id IN (${placeholders})`).run(...idsToDelete);
+  return info.changes;
 }
 
 export function searchCloudFiles(teamName: string, query: string, limit = 20): CloudFileRecord[] {
@@ -407,24 +422,17 @@ export function searchCloudFiles(teamName: string, query: string, limit = 20): C
   ).all(pattern, limit) as CloudFileRecord[];
 }
 
-export function validateCloudPaths(teamName: string, paths: string[]): Record<string, boolean> {
+export function validateCloudIds(teamName: string, ids: string[]): Record<string, boolean> {
   const db = getDb(teamName);
   const result: Record<string, boolean> = {};
-  for (const rawPath of paths) {
-    const isDir = rawPath.endsWith("/");
-    if (isDir) {
-      const parts = rawPath.replace(/\/$/, "").split("/");
-      const dirName = parts.pop()!;
-      const parentPath = parts.length > 0 ? parts.join("/") + "/" : "";
-      const row = db.prepare("SELECT 1 FROM cloud_files WHERE path = ? AND name = ? AND type = 'directory'").get(parentPath, dirName);
-      result[rawPath] = !!row;
-    } else {
-      const parts = rawPath.split("/");
-      const fileName = parts.pop()!;
-      const dirPath = parts.length > 0 ? parts.join("/") + "/" : "";
-      const row = db.prepare("SELECT 1 FROM cloud_files WHERE path = ? AND name = ? AND type = 'file'").get(dirPath, fileName);
-      result[rawPath] = !!row;
-    }
+  for (const id of ids) {
+    result[id] = false;
+  }
+  if (ids.length === 0) return result;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db.prepare(`SELECT id FROM cloud_files WHERE id IN (${placeholders})`).all(...ids) as Array<{ id: string }>;
+  for (const row of rows) {
+    result[row.id] = true;
   }
   return result;
 }
@@ -442,6 +450,33 @@ export function getCloudStats(teamName: string): CloudStats {
     totalDirs: dirRow.count,
     byUser: userRows,
   };
+}
+
+export function buildCloudPath(teamName: string, id: string): string {
+  const db = getDb(teamName);
+  const parts: string[] = [];
+  let currentId: string | null = id;
+  while (currentId !== null) {
+    const row = db.prepare("SELECT name, parent_id FROM cloud_files WHERE id = ?").get(currentId) as { name: string; parent_id: string | null } | undefined;
+    if (!row) break;
+    parts.unshift(row.name);
+    currentId = row.parent_id;
+  }
+  return parts.join("/");
+}
+
+export function getCloudBreadcrumb(teamName: string, id: string | null): Array<{ id: string; name: string }> {
+  if (id === null) return [];
+  const db = getDb(teamName);
+  const breadcrumb: Array<{ id: string; name: string }> = [];
+  let currentId: string | null = id;
+  while (currentId !== null) {
+    const row = db.prepare("SELECT id, name, parent_id FROM cloud_files WHERE id = ?").get(currentId) as { id: string; name: string; parent_id: string | null } | undefined;
+    if (!row) break;
+    breadcrumb.unshift({ id: row.id, name: row.name });
+    currentId = row.parent_id;
+  }
+  return breadcrumb;
 }
 
 // ─── Sticker CRUD ─────────────────────────────────────────────

@@ -382,26 +382,26 @@ export const api = {
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
-  getCloudFiles: (team: string, path?: string) =>
-    request<{ path: string; items: Array<{ id: number; name: string; type: string; size: number; uploadedBy: string; createdAt: number }> }>(`/cloud/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, {
+  getCloudFiles: (team: string, parentId?: string | null) =>
+    request<{ id: string | null; parentId: string | null; name: string; items: Array<{ id: string; name: string; parentId: string | null; type: string; size: number; uploadedBy: string; createdAt: number }> }>(`/cloud/files${parentId ? `?parentId=${encodeURIComponent(parentId)}` : ""}`, {
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
-  deleteCloudFile: (team: string, path: string) =>
-    request<{ ok: boolean }>(`/cloud/files?path=${encodeURIComponent(path)}&from=admin`, {
+  deleteCloudFile: (team: string, id: string) =>
+    request<{ ok: boolean }>(`/cloud/files/${encodeURIComponent(id)}?from=admin`, {
       method: "DELETE",
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
-  createCloudDir: (team: string, name: string, path?: string) =>
-    request<{ ok: boolean; item: { id: number; name: string } }>("/cloud/directories", {
+  createCloudDir: (team: string, name: string, parentId?: string | null) =>
+    request<{ ok: boolean; item: { id: string; name: string } }>("/cloud/directories", {
       method: "POST",
       headers: { "Content-Type": "application/json", team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-      body: JSON.stringify({ name, path: path || "", createdBy: "admin" }),
+      body: JSON.stringify({ name, parentId: parentId || null, createdBy: "admin" }),
     }),
 
   searchCloudFiles: (team: string, query: string) =>
-    request<Array<{ name: string; path: string; type: string; size: number }>>(`/cloud/search?q=${encodeURIComponent(query)}`, {
+    request<Array<{ id: string; name: string; displayPath: string; type: string; size: number }>>(`/cloud/search?q=${encodeURIComponent(query)}`, {
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 

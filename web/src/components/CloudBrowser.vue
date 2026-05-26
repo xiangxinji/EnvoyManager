@@ -5,8 +5,9 @@ import { api } from "../api";
 const props = defineProps<{ team: string }>();
 
 interface CloudItem {
-  id: number;
+  id: string;
   name: string;
+  parentId: string | null;
   type: string;
   size: number;
   uploadedBy: string;
@@ -14,7 +15,8 @@ interface CloudItem {
 }
 
 const items = ref<CloudItem[]>([]);
-const currentPath = ref("");
+const currentDirId = ref<string | null>(null);
+const breadcrumbStack = ref<Array<{ id: string; name: string }>>([]);
 const loading = ref(true);
 const error = ref("");
 let timer: ReturnType<typeof setInterval>;
@@ -23,9 +25,8 @@ let loadId = 0;
 
 async function load() {
   const id = ++loadId;
-  const path = currentPath.value;
   try {
-    const res = await api.getCloudFiles(props.team, path);
+    const res = await api.getCloudFiles(props.team, currentDirId.value);
     if (id !== loadId) return;
     items.value = res.items;
     error.value = "";
@@ -37,26 +38,27 @@ async function load() {
   }
 }
 
-function navigateTo(path: string) {
-  currentPath.value = path;
+function navigateTo(dirId: string | null) {
+  currentDirId.value = dirId;
   loading.value = true;
+  // Rebuild breadcrumb stack
+  if (dirId === null) {
+    breadcrumbStack.value = [];
+  } else {
+    const idx = breadcrumbStack.value.findIndex(b => b.id === dirId);
+    if (idx >= 0) {
+      breadcrumbStack.value = breadcrumbStack.value.slice(0, idx + 1);
+    }
+  }
   load();
-}
-
-function breadcrumbs(): string[] {
-  if (!currentPath.value) return [];
-  return currentPath.value.replace(/\/$/, "").split("/").filter(Boolean);
-}
-
-function breadcrumbPath(index: number): string {
-  const parts = breadcrumbs().slice(0, index + 1);
-  return parts.join("/") + "/";
 }
 
 function openDir(item: CloudItem) {
   if (item.type !== "directory") return;
-  const newPath = currentPath.value + item.name + "/";
-  navigateTo(newPath);
+  breadcrumbStack.value.push({ id: item.id, name: item.name });
+  currentDirId.value = item.id;
+  loading.value = true;
+  load();
 }
 
 function formatSize(bytes: number): string {
@@ -73,9 +75,8 @@ function formatDate(ts: number): string {
 const actionError = ref("");
 
 async function downloadFile(item: CloudItem) {
-  const filePath = currentPath.value + item.name;
   try {
-    const res = await fetch(`/api/cloud/download/${filePath}`, {
+    const res = await fetch(`/api/cloud/files/${encodeURIComponent(item.id)}/download`, {
       headers: { team: props.team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     });
     if (!res.ok) throw new Error("下载失败");
@@ -101,11 +102,8 @@ function confirmDelete(item: CloudItem) {
 async function doDelete() {
   const item = pendingDelete.value;
   if (!item) return;
-  const filePath = item.type === "directory"
-    ? currentPath.value + item.name + "/"
-    : currentPath.value + item.name;
   try {
-    await api.deleteCloudFile(props.team, filePath);
+    await api.deleteCloudFile(props.team, item.id);
     pendingDelete.value = null;
     await load();
   } catch (e: any) {
@@ -123,7 +121,7 @@ async function handleMkdir() {
   if (!mkdirName.value.trim()) return;
   creating.value = true;
   try {
-    await api.createCloudDir(props.team, mkdirName.value.trim(), currentPath.value);
+    await api.createCloudDir(props.team, mkdirName.value.trim(), currentDirId.value);
     showMkdirModal.value = false;
     mkdirName.value = "";
     await load();
@@ -149,7 +147,7 @@ async function handleUpload() {
       try {
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("path", currentPath.value);
+        if (currentDirId.value) formData.append("parentId", currentDirId.value);
         formData.append("uploadedBy", "admin");
         const token = localStorage.getItem("admin_token") || "";
         const res = await fetch("/api/cloud/files", {
@@ -172,7 +170,7 @@ async function handleUpload() {
 }
 
 const searchQuery = ref("");
-const searchResults = ref<Array<{ name: string; path: string; type: string; size: number }>>([]);
+const searchResults = ref<Array<{ id: string; name: string; displayPath: string; type: string; size: number }>>([]);
 const searching = ref(false);
 
 async function handleSearch() {
@@ -195,10 +193,11 @@ function clearSearch() {
   searchResults.value = [];
 }
 
-function goToSearchResult(path: string) {
-  const parts = path.split("/");
-  parts.pop();
-  currentPath.value = parts.join("/") + (parts.length > 0 ? "/" : "");
+function goToSearchResult(item: { id: string; type: string }) {
+  if (item.type === "directory") {
+    currentDirId.value = item.id;
+    breadcrumbStack.value = [{ id: item.id, name: "" }];
+  }
   searchResults.value = [];
   searchQuery.value = "";
   loading.value = true;
@@ -234,19 +233,19 @@ onUnmounted(() => clearInterval(timer));
     <div v-if="actionError" class="action-error">{{ actionError }}</div>
 
     <div v-if="searchResults.length > 0" class="search-results">
-      <div v-for="r in searchResults" :key="r.path" class="search-item" @click="goToSearchResult(r.path)">
+      <div v-for="r in searchResults" :key="r.id" class="search-item" @click="goToSearchResult(r)">
         <span class="item-icon">{{ r.type === "directory" ? "📁" : "📄" }}</span>
         <span class="item-name">{{ r.name }}</span>
-        <span class="item-path">{{ r.path }}</span>
+        <span class="item-path">{{ r.displayPath }}</span>
       </div>
     </div>
 
     <template v-else>
-      <div v-if="currentPath" class="breadcrumbs">
-        <span class="crumb" @click="navigateTo('')">根目录</span>
-        <template v-for="(part, i) in breadcrumbs()" :key="i">
+      <div v-if="currentDirId" class="breadcrumbs">
+        <span class="crumb" @click="navigateTo(null)">根目录</span>
+        <template v-for="(crumb, i) in breadcrumbStack" :key="crumb.id">
           <span class="crumb-sep">/</span>
-          <span class="crumb" @click="navigateTo(breadcrumbPath(i))">{{ part }}</span>
+          <span class="crumb" @click="navigateTo(crumb.id)">{{ crumb.name }}</span>
         </template>
       </div>
 
@@ -254,7 +253,7 @@ onUnmounted(() => clearInterval(timer));
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else-if="items.length === 0" class="empty">此目录为空</div>
       <div v-else class="file-list">
-        <div v-if="currentPath" class="file-row parent-dir" @click="navigateTo(currentPath.split('/').slice(0, -2).join('/') + '/')">
+        <div v-if="breadcrumbStack.length > 0" class="file-row parent-dir" @click="navigateTo(breadcrumbStack.length > 1 ? breadcrumbStack[breadcrumbStack.length - 2].id : null)">
           <span class="item-icon">📁</span>
           <span class="item-name">..</span>
           <span class="item-meta" />
