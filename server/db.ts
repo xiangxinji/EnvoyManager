@@ -58,6 +58,10 @@ export interface StoredTask {
   resources: string;
   created_at: number;
   attempt: number;
+  serial_index: number;
+  pending_clients: string;
+  leader_reviewing: number;
+  retry_count: number;
 }
 
 export interface TaskRow {
@@ -96,16 +100,20 @@ const MESSAGE_INDEXES = [
 
 const CREATE_TASKS_TABLE = `
 CREATE TABLE IF NOT EXISTS tasks (
-  id         TEXT PRIMARY KEY NOT NULL,
-  create_by  TEXT NOT NULL,
-  subscribe  TEXT NOT NULL DEFAULT '[]',
-  content    TEXT NOT NULL DEFAULT '',
-  mode       TEXT NOT NULL DEFAULT 'serial',
-  status     TEXT NOT NULL DEFAULT 'pending',
-  resources  TEXT NOT NULL DEFAULT '[]',
-  created_at INTEGER NOT NULL,
-  attempt    INTEGER NOT NULL DEFAULT 1,
-  updated_at INTEGER NOT NULL
+  id              TEXT PRIMARY KEY NOT NULL,
+  create_by       TEXT NOT NULL,
+  subscribe       TEXT NOT NULL DEFAULT '[]',
+  content         TEXT NOT NULL DEFAULT '',
+  mode            TEXT NOT NULL DEFAULT 'serial',
+  status          TEXT NOT NULL DEFAULT 'pending',
+  resources       TEXT NOT NULL DEFAULT '[]',
+  created_at      INTEGER NOT NULL,
+  attempt         INTEGER NOT NULL DEFAULT 1,
+  updated_at      INTEGER NOT NULL,
+  serial_index    INTEGER NOT NULL DEFAULT 0,
+  pending_clients TEXT NOT NULL DEFAULT '[]',
+  leader_reviewing INTEGER NOT NULL DEFAULT 0,
+  retry_count     INTEGER NOT NULL DEFAULT 0
 )`;
 
 const TASK_INDEXES = [
@@ -179,6 +187,20 @@ export function initTeamDatabase(teamDir: string): void {
   const stickerColumns = db.prepare("PRAGMA table_info(stickers)").all() as Array<{ name: string }>;
   if (!stickerColumns.some((c) => c.name === "file_hash")) {
     db.exec("ALTER TABLE stickers ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''");
+  }
+
+  const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+  if (!taskColumns.some((c) => c.name === "serial_index")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN serial_index INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!taskColumns.some((c) => c.name === "pending_clients")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN pending_clients TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!taskColumns.some((c) => c.name === "leader_reviewing")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN leader_reviewing INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!taskColumns.some((c) => c.name === "retry_count")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0");
   }
 
   for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES, ...STICKER_INDEXES]) {
@@ -279,6 +301,13 @@ export function queryConversations(teamName: string, user: string): Conversation
 
 // ─── Task CRUD ────────────────────────────────────────────────
 
+export interface SerializedTaskState {
+  serialIndex: number;
+  pendingClients: string[];
+  leaderReviewing: boolean;
+  retryCount: number;
+}
+
 export function upsertTask(teamName: string, task: {
   id: string;
   createBy: string;
@@ -289,17 +318,25 @@ export function upsertTask(teamName: string, task: {
   resources: Array<{ type: string; by: string; data: unknown; attempt: number }>;
   createdAt: number;
   attempt: number;
-}): void {
+}, state?: SerializedTaskState | null): void {
   const db = getDb(teamName);
   const now = Date.now();
+  const si = state?.serialIndex ?? 0;
+  const pc = JSON.stringify(state?.pendingClients ?? []);
+  const lr = state?.leaderReviewing ? 1 : 0;
+  const rc = state?.retryCount ?? 0;
   db.prepare(`
-    INSERT INTO tasks (id, create_by, subscribe, content, mode, status, resources, created_at, attempt, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, create_by, subscribe, content, mode, status, resources, created_at, attempt, updated_at, serial_index, pending_clients, leader_reviewing, retry_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       status = excluded.status,
       resources = excluded.resources,
       attempt = excluded.attempt,
-      updated_at = excluded.updated_at
+      updated_at = excluded.updated_at,
+      serial_index = excluded.serial_index,
+      pending_clients = excluded.pending_clients,
+      leader_reviewing = excluded.leader_reviewing,
+      retry_count = excluded.retry_count
   `).run(
     task.id,
     task.createBy,
@@ -311,6 +348,10 @@ export function upsertTask(teamName: string, task: {
     task.createdAt,
     task.attempt,
     now,
+    si,
+    pc,
+    lr,
+    rc,
   );
 }
 
@@ -338,6 +379,28 @@ export function queryTaskById(teamName: string, taskId: string): TaskRow | null 
   const db = getDb(teamName);
   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as StoredTask | undefined;
   return row ? rowToTaskRow(row) : null;
+}
+
+export interface ActiveTaskRow extends TaskRow {
+  serialIndex: number;
+  pendingClients: string[];
+  leaderReviewing: boolean;
+  retryCount: number;
+}
+
+export function queryActiveTasks(teamName: string): ActiveTaskRow[] {
+  const db = getDb(teamName);
+  const rows = db.prepare("SELECT * FROM tasks WHERE status NOT IN ('completed', 'failed')").all() as StoredTask[];
+  return rows.map((row) => {
+    const base = rowToTaskRow(row);
+    return {
+      ...base,
+      serialIndex: row.serial_index,
+      pendingClients: JSON.parse(row.pending_clients) as string[],
+      leaderReviewing: row.leader_reviewing === 1,
+      retryCount: row.retry_count,
+    };
+  });
 }
 
 // ─── Cloud Files CRUD ─────────────────────────────────────────

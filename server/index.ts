@@ -15,7 +15,7 @@ import cloudRoutes from "./routes/cloud.js";
 import brainsRoutes from "./routes/brains.js";
 import { initCrypto } from "./crypto.js";
 import { initManagerDB, AVATARS_DIR } from "./manager-db.js";
-import { initTeamDatabase, insertMessage, upsertTask } from "./db.js";
+import { initTeamDatabase, insertMessage, upsertTask, queryActiveTasks } from "./db.js";
 
 const app = new Hono();
 app.use("*", cors());
@@ -36,6 +36,7 @@ async function restoreTeams(): Promise<void> {
     teamInstances.set(rec.name, team);
     initTeamDatabase(getTeamDir(rec.name));
     setupTaskPersistence(rec.name, team);
+    restoreActiveTasks(rec.name, team);
     console.log(`[restored] team "${rec.name}" on port ${rec.port}`);
   }
 }
@@ -43,16 +44,16 @@ async function restoreTeams(): Promise<void> {
 function setupTaskPersistence(teamName: string, team: Team): void {
   const server = team.innerServer;
 
-  server.on("task:created", (task: Task) => persistTask(teamName, task));
-  server.on("task:updated", (task: Task) => persistTask(teamName, task));
-  server.on("task:completed", (task: Task) => persistTask(teamName, task));
-  server.on("task:failed", (task: Task) => persistTask(teamName, task));
+  server.on("task:created", (task: Task) => persistTask(teamName, task, server));
+  server.on("task:updated", (task: Task) => persistTask(teamName, task, server));
+  server.on("task:completed", (task: Task) => persistTask(teamName, task, server));
+  server.on("task:failed", (task: Task) => persistTask(teamName, task, server));
 }
 
-async function persistTask(teamName: string, task: Task): Promise<void> {
-  // Upsert task to SQLite
+async function persistTask(teamName: string, task: Task, server: { getTaskState(id: string): { serialIndex: number; pendingClients: string[]; leaderReviewing: boolean; retryCount: number } | null }): Promise<void> {
+  const state = server.getTaskState(task.id);
   try {
-    upsertTask(teamName, task);
+    upsertTask(teamName, task, state);
   } catch (e) {
     console.error(`[persist] failed to upsert task ${task.id}:`, e);
   }
@@ -79,6 +80,36 @@ async function persistTask(teamName: string, task: Task): Promise<void> {
   }
 }
 
+function restoreActiveTasks(teamName: string, team: Team): void {
+  const server = team.innerServer;
+  const active = queryActiveTasks(teamName);
+  if (active.length === 0) return;
+
+  const entries = active.map((row) => ({
+    task: {
+      id: row.id,
+      createBy: row.createBy,
+      subscribe: row.subscribe,
+      content: row.content,
+      mode: row.mode,
+      status: row.status,
+      resources: row.resources,
+      createdAt: row.createdAt,
+      attempt: row.attempt,
+    } as Task,
+    state: {
+      serialIndex: row.serialIndex,
+      pendingClients: row.pendingClients,
+      leaderReviewing: row.leaderReviewing,
+      retryCount: row.retryCount,
+    },
+  }));
+
+  server.loadTaskStates(entries);
+  server.redispatchRestoredTasks();
+  console.log(`[restore] recovered ${active.length} active tasks for team "${teamName}"`);
+}
+
 // Serve avatar files
 app.use("/avatars/*", serveStatic({ root: AVATARS_DIR, rewriteRequestPath: (path) => path.replace(/^\/avatars/, "") }));
 
@@ -91,6 +122,7 @@ brainsRoutes(app, teamInstances);
 teamRoutes(app, teamInstances, (name, team) => {
   initTeamDatabase(getTeamDir(name));
   setupTaskPersistence(name, team);
+  restoreActiveTasks(name, team);
 });
 userRoutes(app);
 dashboardRoutes(app, teamInstances);
