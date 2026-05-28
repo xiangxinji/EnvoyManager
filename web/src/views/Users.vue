@@ -419,6 +419,16 @@ tr:last-child td {
   border-color: var(--accent);
 }
 
+.field input:-webkit-autofill,
+.field input:-webkit-autofill:hover,
+.field input:-webkit-autofill:focus,
+.field input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 36px var(--bg-primary) inset;
+  caret-color: var(--text-primary);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 .field textarea {
   padding: 10px 14px;
   border: 1px solid var(--border);

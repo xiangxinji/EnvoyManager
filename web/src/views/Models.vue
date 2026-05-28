@@ -467,6 +467,16 @@ function getProviderLabel(id: string): string {
   color: var(--text-muted);
 }
 
+.form-grid input:-webkit-autofill,
+.form-grid input:-webkit-autofill:hover,
+.form-grid input:-webkit-autofill:focus,
+.form-grid input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 36px var(--bg-primary) inset;
+  caret-color: var(--text-primary);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 .model-input-group {
   display: flex;
 }

@@ -157,6 +157,16 @@ input::placeholder {
   color: var(--text-muted);
 }
 
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 36px var(--bg-primary) inset;
+  caret-color: var(--text-primary);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 .login-btn {
   width: 100%;
   padding: 12px;
