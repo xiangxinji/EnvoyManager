@@ -93,6 +93,11 @@ function getDb(): Database.Database {
   return db;
 }
 
+/** @internal Inject an external DB instance for testing */
+export function __setDb(instance: Database.Database): void {
+  db = instance;
+}
+
 // ─── Admin CRUD ───
 
 export interface AdminConfig {

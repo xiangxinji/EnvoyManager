@@ -211,6 +211,11 @@ export function initTeamDatabase(teamDir: string): void {
   teamDbs.set(teamName, db);
 }
 
+/** @internal Register an external DB instance for testing */
+export function __setTeamDb(teamName: string, instance: Database.Database): void {
+  teamDbs.set(teamName, instance);
+}
+
 export function closeTeamDatabase(teamName: string): void {
   const db = teamDbs.get(teamName);
   if (db) {
