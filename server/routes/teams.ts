@@ -1,12 +1,15 @@
 import type { Hono } from "hono";
+import { rm, readdir } from "node:fs/promises";
 import { Team } from "../../../envoy/packages/teams/team.js";
-import { closeTeamDatabase, queryTasks, queryTaskById } from "../db.js";
+import { closeTeamDatabase, queryTasks, queryTaskById, deleteTask, deleteAllTasks, deleteTaskMessages, deleteAllTaskMessages } from "../db.js";
 import {
   loadRegistry,
   allocatePort,
   loadMeta,
   saveMeta,
   deleteTeamDir,
+  getTaskDir,
+  getTasksDir,
   type TeamRecord,
   type TeamMeta,
 } from "../team-registry.js";
@@ -233,6 +236,65 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
       if (t.status in counts) counts[t.status as keyof typeof counts]++;
     }
     return c.json(counts);
+  });
+
+  // Delete all tasks for a team
+  app.delete("/api/teams/:name/tasks", async (c) => {
+    const name = c.req.param("name");
+    const instance = teams.get(name);
+    if (!instance) return c.json({ error: "team not found" }, 404);
+
+    // 1. Clear in-memory tasks
+    const memCount = instance.innerServer.removeAllTasks();
+
+    // 2. Clear SQLite tasks table
+    const dbCount = deleteAllTasks(name);
+
+    // 3. Clear associated task messages
+    deleteAllTaskMessages(name);
+
+    // 4. Clear task directories on disk
+    try {
+      const tasksDir = getTasksDir(name);
+      const entries = await readdir(tasksDir).catch(() => [] as string[]);
+      for (const entry of entries) {
+        await rm(`${tasksDir}/${entry}`, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch {
+      // tasks dir may not exist
+    }
+
+    console.log(`[tasks] cleared all tasks for team "${name}": ${dbCount} from db, ${memCount} from memory`);
+    return c.json({ ok: true, deletedCount: dbCount });
+  });
+
+  // Delete a single task
+  app.delete("/api/teams/:name/tasks/:id", async (c) => {
+    const name = c.req.param("name");
+    const instance = teams.get(name);
+    if (!instance) return c.json({ error: "team not found" }, 404);
+
+    const taskId = c.req.param("id");
+
+    // 1. Remove from in-memory
+    instance.innerServer.removeTask(taskId);
+
+    // 2. Remove from SQLite tasks table
+    const deleted = deleteTask(name, taskId);
+
+    // 3. Remove associated task messages
+    deleteTaskMessages(name, taskId);
+
+    // 4. Remove task directory on disk
+    try {
+      const taskDir = getTaskDir(name, taskId);
+      await rm(taskDir, { recursive: true, force: true });
+    } catch {
+      // task dir may not exist
+    }
+
+    console.log(`[tasks] deleted task "${taskId}" from team "${name}"`);
+    return c.json({ ok: true, deleted: deleted ? taskId : null });
   });
 
   app.get("/api/teams/:name/tasks/:id", async (c) => {

@@ -408,6 +408,32 @@ export function queryActiveTasks(teamName: string): ActiveTaskRow[] {
   });
 }
 
+// ─── Task Deletion ─────────────────────────────────────────────
+
+export function deleteTask(teamName: string, taskId: string): boolean {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+  return info.changes > 0;
+}
+
+export function deleteAllTasks(teamName: string): number {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM tasks").run();
+  return info.changes;
+}
+
+export function deleteTaskMessages(teamName: string, taskId: string): number {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM messages WHERE type = 'task' AND json_extract(extra, '$.taskId') = ?").run(taskId);
+  return info.changes;
+}
+
+export function deleteAllTaskMessages(teamName: string): number {
+  const db = getDb(teamName);
+  const info = db.prepare("DELETE FROM messages WHERE type = 'task'").run();
+  return info.changes;
+}
+
 // ─── Cloud Files CRUD ─────────────────────────────────────────
 
 export interface CloudFileRecord {

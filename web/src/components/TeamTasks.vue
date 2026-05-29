@@ -39,6 +39,26 @@ const statusOptions = [
   { value: "failed", label: "失败" },
 ];
 
+async function handleDelete(taskId: string) {
+  if (!confirm(`确定要删除任务 "${taskId}" 吗？`)) return;
+  try {
+    await api.deleteTask(props.team, taskId);
+    await load();
+  } catch (e: any) {
+    alert("删除失败: " + e.message);
+  }
+}
+
+async function handleDeleteAll() {
+  if (!confirm("确定要清空团队所有任务吗？此操作不可恢复。")) return;
+  try {
+    await api.deleteAllTasks(props.team);
+    await load();
+  } catch (e: any) {
+    alert("清空失败: " + e.message);
+  }
+}
+
 onMounted(() => { load(); timer = setInterval(load, 5000); });
 onUnmounted(() => clearInterval(timer));
 </script>
@@ -55,11 +75,12 @@ onUnmounted(() => clearInterval(timer));
           :class="{ active: statusFilter === opt.value }"
           @click="statusFilter = opt.value"
         >{{ opt.label }}</button>
+        <button v-if="tasks.length > 0" class="clear-btn" @click="handleDeleteAll">清空所有</button>
       </div>
     </div>
 
     <div v-if="loading" class="loading">加载中...</div>
-    <TaskTable v-else :tasks="filteredTasks" :team="team" />
+    <TaskTable v-else :tasks="filteredTasks" :team="team" @delete="handleDelete" />
   </div>
 </template>
 
@@ -109,6 +130,24 @@ onUnmounted(() => clearInterval(timer));
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+.clear-btn {
+  background: none;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78em;
+  color: var(--error);
+  cursor: pointer;
+  margin-left: 8px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.clear-btn:hover {
+  color: #fff;
+  background: var(--error);
+  border-color: var(--error);
 }
 
 .loading {

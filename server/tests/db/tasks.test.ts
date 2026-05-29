@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTeamDB } from "../helpers/team-db.js";
-import { __setTeamDb, upsertTask, queryTasks, queryTaskById, queryActiveTasks } from "../../db.js";
+import { __setTeamDb, upsertTask, queryTasks, queryTaskById, queryActiveTasks, deleteTask, deleteAllTasks, deleteTaskMessages, insertMessage } from "../../db.js";
 
 const TEAM = "test-team";
 
@@ -99,5 +99,62 @@ describe("Task CRUD", () => {
     const tasks = queryTasks(TEAM);
     expect(tasks[0].id).toBe("t-new");
     expect(tasks[1].id).toBe("t-old");
+  });
+});
+
+describe("Task Deletion", () => {
+  beforeEach(() => {
+    init();
+  });
+
+  const sampleTask = {
+    id: "task-1",
+    createBy: "leader",
+    subscribe: ["worker1", "worker2"],
+    content: "do stuff",
+    mode: "serial",
+    status: "pending",
+    resources: [] as Array<{ type: string; by: string; data: unknown; attempt: number }>,
+    createdAt: Date.now(),
+    attempt: 1,
+  };
+
+  it("deleteTask removes an existing task", () => {
+    upsertTask(TEAM, sampleTask);
+    expect(deleteTask(TEAM, "task-1")).toBe(true);
+    expect(queryTaskById(TEAM, "task-1")).toBeNull();
+  });
+
+  it("deleteTask returns false for unknown id", () => {
+    expect(deleteTask(TEAM, "ghost")).toBe(false);
+  });
+
+  it("deleteAllTasks removes all tasks and returns count", () => {
+    upsertTask(TEAM, { ...sampleTask, id: "t1" });
+    upsertTask(TEAM, { ...sampleTask, id: "t2" });
+    upsertTask(TEAM, { ...sampleTask, id: "t3" });
+    const count = deleteAllTasks(TEAM);
+    expect(count).toBe(3);
+    expect(queryTasks(TEAM)).toHaveLength(0);
+  });
+
+  it("deleteAllTasks returns 0 when no tasks", () => {
+    expect(deleteAllTasks(TEAM)).toBe(0);
+  });
+
+  it("deleteTaskMessages removes associated task messages", () => {
+    upsertTask(TEAM, sampleTask);
+    // Insert task messages (simulating what persistTask does)
+    insertMessage(TEAM, { type: "task", subtype: "task:pending", from_user: "leader", to_user: "worker1", content: "do stuff", extra: { taskId: "task-1" } });
+    insertMessage(TEAM, { type: "task", subtype: "task:pending", from_user: "leader", to_user: "worker2", content: "do stuff", extra: { taskId: "task-1" } });
+    // Insert a non-task message that should not be affected
+    insertMessage(TEAM, { type: "chat", subtype: undefined as any, from_user: "leader", to_user: "worker1", content: "hello" });
+
+    const deleted = deleteTaskMessages(TEAM, "task-1");
+    expect(deleted).toBe(2);
+  });
+
+  it("deleteTaskMessages returns 0 for unknown taskId", () => {
+    expect(deleteTaskMessages(TEAM, "ghost")).toBe(0);
   });
 });

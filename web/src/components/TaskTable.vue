@@ -2,6 +2,7 @@
 import type { TaskInfo } from "../api";
 
 const props = defineProps<{ tasks: TaskInfo[]; team: string }>();
+const emit = defineEmits<{ delete: [taskId: string] }>();
 
 const statusLabels: Record<string, string> = {
   pending: "等待中",
@@ -25,6 +26,12 @@ function formatResult(result: unknown): string {
 
 function taskUrl(id: string): string {
   return `/teams/${props.team}/tasks/${id}`;
+}
+
+function handleDelete(e: MouseEvent, taskId: string) {
+  e.stopPropagation();
+  e.preventDefault();
+  emit("delete", taskId);
 }
 </script>
 
@@ -65,6 +72,7 @@ function taskUrl(id: string): string {
             </td>
             <td class="result-cell">{{ formatResult(t.result) }}</td>
             <td class="action-cell">
+              <button class="btn-delete" title="删除任务" @click="handleDelete($event, t.id)">✕</button>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
@@ -194,7 +202,26 @@ tr:last-child td {
 
 .action-cell {
   color: var(--text-muted);
-  width: 30px;
+  width: 60px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.82em;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-delete:hover {
+  color: var(--error);
+  background: rgba(255, 69, 58, 0.1);
 }
 
 .empty {

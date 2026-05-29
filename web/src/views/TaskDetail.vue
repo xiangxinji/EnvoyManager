@@ -24,6 +24,16 @@ function goBack() {
   router.push(`/teams/${props.name}`);
 }
 
+async function handleDelete() {
+  if (!confirm("确定要删除此任务吗？此操作不可恢复。")) return;
+  try {
+    await api.deleteTask(props.name, props.id);
+    router.push(`/teams/${props.name}`);
+  } catch (e: any) {
+    alert("删除失败: " + e.message);
+  }
+}
+
 function formatTime(ts: number): string {
   if (!ts) return "—";
   return new Date(ts).toLocaleString("zh-CN");
@@ -53,6 +63,7 @@ function formatResultData(data: unknown): string {
         </svg>
         返回团队
       </button>
+      <button v-if="task" class="btn-delete-task" @click="handleDelete">删除任务</button>
     </div>
 
     <div v-if="loading" class="loading">加载中...</div>
@@ -132,6 +143,9 @@ function formatResultData(data: unknown): string {
 }
 
 .detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: var(--space-xl);
 }
 
@@ -151,6 +165,23 @@ function formatResultData(data: unknown): string {
 .btn-back:hover {
   color: var(--accent);
   background: var(--card-bg);
+}
+
+.btn-delete-task {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--error);
+  font-size: 0.82em;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.btn-delete-task:hover {
+  color: #fff;
+  background: var(--error);
+  border-color: var(--error);
 }
 
 .loading, .error {

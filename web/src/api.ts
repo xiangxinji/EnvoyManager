@@ -197,6 +197,10 @@ export const api = {
   getMembers: (name: string) => request<ServerClientInfo[]>(`/teams/${name}/members`),
   getTasks: (name: string) => request<TaskInfo[]>(`/teams/${name}/tasks`),
   getTaskDetail: (team: string, id: string) => request<TaskDetailData>(`/teams/${team}/tasks/${id}`),
+  deleteTask: (team: string, id: string) =>
+    request<{ ok: boolean }>(`/teams/${team}/tasks/${id}`, { method: "DELETE" }),
+  deleteAllTasks: (team: string) =>
+    request<{ ok: boolean; deletedCount: number }>(`/teams/${team}/tasks`, { method: "DELETE" }),
   getUsers: () => request<UserInfo[]>("/users"),
   createUser: async (username: string, password: string, role: "leader" | "member", responsibilities?: string, capabilities?: string, nickname?: string) => {
     const pubKey = await getPublicKey();
