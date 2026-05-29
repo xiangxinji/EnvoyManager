@@ -17,8 +17,12 @@ import {
   validateCloudIds,
   buildCloudPath,
   getCloudBreadcrumb,
+  getCloudDirectoryTree,
+  formatDirectoryTree,
   type CloudFileRecord,
 } from "../db.js";
+import { resolveForScene } from "../settings.js";
+import { handleCloudOrganize } from "../services/ai/cloudOrganize.js";
 
 async function dualAuth(c: Context, next: Next) {
   const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
@@ -364,5 +368,137 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
 
     const stats = getCloudStats(teamName);
     return c.json(stats);
+  });
+
+  // ─── Smart Upload (AI-organized) ─────────────────────────
+
+  app.post("/api/cloud/smart-upload", async (c) => {
+    const teamName = c.req.header("team");
+    if (!teamName) return c.json({ error: "team header is required" }, 400);
+
+    const team = teams.get(teamName);
+    if (!team) return c.json({ error: "team not found" }, 404);
+
+    const formData = await c.req.formData();
+    const file = formData.get("file") as File | null;
+    const filename = formData.get("filename") as string | null;
+    const description = formData.get("description") as string | null;
+    const uploadedBy = formData.get("uploadedBy") as string | null;
+    const taskContext = formData.get("taskContext") as string | null;
+
+    if (!file && !filename) return c.json({ error: "file or filename is required" }, 400);
+    if (!description) return c.json({ error: "description is required" }, 400);
+    if (!uploadedBy) return c.json({ error: "uploadedBy is required" }, 400);
+
+    const effectiveFilename = filename || (file as File).name;
+
+    // Step 1: Get directory tree
+    const tree = getCloudDirectoryTree(teamName);
+    const treeText = formatDirectoryTree(tree);
+
+    // Step 2: AI reasoning for target directory
+    let directoryPath: string[];
+    try {
+      const resolved = resolveForScene("cloud_organize");
+
+      // Build a sub-request for the AI handler
+      const aiBody = {
+        directoryTree: treeText,
+        filename: effectiveFilename,
+        description,
+        taskContext: taskContext || undefined,
+      };
+
+      // Call the AI handler directly (reuse the same pattern as other scenes)
+      const { generateObject } = await import("ai");
+      const { z } = await import("zod");
+      const { CLOUD_ORGANIZE_SYSTEM_PROMPT } = await import("../services/ai/prompts/cloudOrganize.js");
+
+      const contextSection = taskContext ? `\n任务上下文：${taskContext}` : "";
+      const treeSection = treeText ? `当前目录结构：\n${treeText}` : "当前目录结构：（空）";
+      const prompt = `${treeSection}\n\n文件名：${effectiveFilename}\n文件描述：${description}${contextSection}`;
+
+      const result = await generateObject({
+        model: resolved.model,
+        system: CLOUD_ORGANIZE_SYSTEM_PROMPT,
+        prompt,
+        schema: z.object({
+          reasoning: z.string(),
+          directoryPath: z.array(z.string()),
+        }),
+        schemaName: "CloudOrganize",
+        temperature: resolved.temperature,
+        maxTokens: resolved.maxTokens,
+      });
+
+      directoryPath = result.object.directoryPath;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[smart-upload] AI organize failed:", msg);
+      if (msg.includes("AI not configured")) {
+        return c.json({ error: "AI not configured", fallback: true }, 503);
+      }
+      // On other AI errors, fall back to root directory
+      directoryPath = [];
+    }
+
+    // Step 3: Resolve path — find or create directories level by level
+    let currentParentId: string | null = null;
+    const createdDirs: string[] = [];
+
+    for (const dirName of directoryPath) {
+      const existing = findCloudFile(teamName, currentParentId, dirName);
+      if (existing) {
+        currentParentId = existing.id;
+      } else {
+        // Create directory on filesystem
+        const relativeDir = currentParentId ? buildCloudPath(teamName, currentParentId) : "";
+        const fullPath = relativeDir
+          ? join(getCloudDir(teamName), ...relativeDir.split("/"), dirName)
+          : join(getCloudDir(teamName), dirName);
+        await mkdir(fullPath, { recursive: true });
+
+        // Insert into DB
+        const record = insertCloudFile(teamName, {
+          name: dirName,
+          parent_id: currentParentId,
+          type: "directory",
+          size: 0,
+          uploaded_by: uploadedBy,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        });
+        currentParentId = record.id;
+        createdDirs.push(dirName);
+      }
+    }
+
+    // Step 4: Save file
+    const fileContent = file ? Buffer.from(await file.arrayBuffer()) : Buffer.alloc(0);
+    const relativeDir = currentParentId ? buildCloudPath(teamName, currentParentId) : "";
+    const targetDir = relativeDir ? join(getCloudDir(teamName), ...relativeDir.split("/")) : getCloudDir(teamName);
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(join(targetDir, effectiveFilename), fileContent);
+
+    const record = insertCloudFile(teamName, {
+      name: effectiveFilename,
+      parent_id: currentParentId,
+      type: "file",
+      size: fileContent.length,
+      uploaded_by: uploadedBy,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    const displayPath = currentParentId
+      ? `${buildCloudPath(teamName, currentParentId)}/${effectiveFilename}`
+      : effectiveFilename;
+
+    return c.json({
+      ok: true,
+      path: displayPath,
+      itemId: record.id,
+      createdDirs,
+    });
   });
 }

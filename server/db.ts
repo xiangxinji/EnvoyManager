@@ -573,6 +573,50 @@ export function getCloudBreadcrumb(teamName: string, id: string | null): Array<{
   return breadcrumb;
 }
 
+// ─── Cloud Directory Tree ────────────────────────────────────
+
+export interface DirectoryNode {
+  id: string;
+  name: string;
+  children: DirectoryNode[];
+}
+
+export function getCloudDirectoryTree(teamName: string): DirectoryNode[] {
+  const db = getDb(teamName);
+  const dirs = db.prepare(
+    "SELECT id, name, parent_id FROM cloud_files WHERE type = 'directory' ORDER BY name ASC"
+  ).all() as Array<{ id: string; name: string; parent_id: string | null }>;
+
+  const idMap = new Map<string, DirectoryNode>();
+  for (const d of dirs) {
+    idMap.set(d.id, { id: d.id, name: d.name, children: [] });
+  }
+
+  const roots: DirectoryNode[] = [];
+  for (const d of dirs) {
+    const node = idMap.get(d.id)!;
+    if (d.parent_id === null) {
+      roots.push(node);
+    } else {
+      const parent = idMap.get(d.parent_id);
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
+  }
+  return roots;
+}
+
+export function formatDirectoryTree(nodes: DirectoryNode[], indent = 0): string {
+  const lines: string[] = [];
+  for (const node of nodes) {
+    lines.push("  ".repeat(indent) + node.name + "/");
+    if (node.children.length > 0) {
+      lines.push(formatDirectoryTree(node.children, indent + 1));
+    }
+  }
+  return lines.join("\n");
+}
+
 // ─── Sticker CRUD ─────────────────────────────────────────────
 
 export interface StickerRecord {
