@@ -13,6 +13,7 @@ const navItems = [
   { path: "/teams", label: "团队" },
   { path: "/users", label: "用户" },
   { path: "/models", label: "模型" },
+  { path: "/glossary", label: "词汇表" },
   { path: "/settings", label: "设置" },
 ];
 
@@ -204,6 +205,13 @@ function handleLogout() {
   --card-hover: #f7f8fa;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.35);
+  --glass-bg-heavy: rgba(255, 255, 255, 0.5);
+  --glass-bg-light: rgba(255, 255, 255, 0.25);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-blur: 40px;
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  --glass-shadow-heavy: 0 8px 40px rgba(0, 0, 0, 0.12);
   --status-running: #34c759;
   --status-reviewing: #5ac8fa;
   --status-pending: #ff9f0a;
@@ -238,6 +246,12 @@ html.dark {
   --card-hover: #22223a;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --glass-bg: rgba(28, 28, 30, 0.35);
+  --glass-bg-heavy: rgba(28, 28, 30, 0.5);
+  --glass-bg-light: rgba(28, 28, 30, 0.25);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --glass-shadow-heavy: 0 8px 40px rgba(0, 0, 0, 0.5);
   --error: #ff6b6b;
 }
 

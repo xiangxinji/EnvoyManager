@@ -72,6 +72,17 @@ const SCHEMA = {
     "CREATE INDEX IF NOT EXISTS idx_sticker_user ON stickers(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_sticker_hash ON stickers(file_hash)",
   ],
+  glossary: `
+    CREATE TABLE IF NOT EXISTS glossary (
+      id         TEXT PRIMARY KEY NOT NULL,
+      term       TEXT NOT NULL,
+      definition TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+  glossaryIndexes: [
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)",
+  ],
 };
 
 export function createTeamDB(): Database.Database {
@@ -80,7 +91,8 @@ export function createTeamDB(): Database.Database {
   db.exec(SCHEMA.tasks);
   db.exec(SCHEMA.cloudFiles);
   db.exec(SCHEMA.stickers);
-  for (const sql of [...SCHEMA.messageIndexes, ...SCHEMA.taskIndexes, ...SCHEMA.cloudFileIndexes, ...SCHEMA.stickerIndexes]) {
+  db.exec(SCHEMA.glossary);
+  for (const sql of [...SCHEMA.messageIndexes, ...SCHEMA.taskIndexes, ...SCHEMA.cloudFileIndexes, ...SCHEMA.stickerIndexes, ...SCHEMA.glossaryIndexes]) {
     db.exec(sql);
   }
   return db;

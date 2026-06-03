@@ -37,6 +37,14 @@ const SCHEMA = {
       nickname        TEXT,
       avatar_url      TEXT
     )`,
+  glossary: `
+    CREATE TABLE IF NOT EXISTS glossary (
+      id         TEXT PRIMARY KEY NOT NULL,
+      term       TEXT NOT NULL,
+      definition TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
 };
 
 export function createManagerDB(): Database.Database {
@@ -45,6 +53,8 @@ export function createManagerDB(): Database.Database {
   db.exec(SCHEMA.aiPresets);
   db.exec(SCHEMA.aiScenes);
   db.exec(SCHEMA.users);
+  db.exec(SCHEMA.glossary);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)");
   return db;
 }
 
