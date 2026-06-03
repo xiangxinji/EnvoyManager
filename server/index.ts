@@ -13,6 +13,7 @@ import aiRoutes from "./routes/ai.js";
 import messageRoutes from "./routes/messages.js";
 import cloudRoutes from "./routes/cloud.js";
 import brainsRoutes from "./routes/brains.js";
+import glossaryRoutes from "./routes/glossary.js";
 import { initCrypto } from "./crypto.js";
 import { initManagerDB, AVATARS_DIR } from "./manager-db.js";
 import { initTeamDatabase, insertMessage, upsertTask, queryActiveTasks } from "./db.js";
@@ -120,6 +121,7 @@ aiRoutes(app);
 messageRoutes(app, teamInstances);
 cloudRoutes(app, teamInstances);
 brainsRoutes(app, teamInstances);
+glossaryRoutes(app, teamInstances);
 teamRoutes(app, teamInstances, (name, team) => {
   initTeamDatabase(getTeamDir(name));
   setupTaskPersistence(name, team);

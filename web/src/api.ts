@@ -86,6 +86,14 @@ export interface TeamMember {
   capabilities?: string;
 }
 
+export interface GlossaryEntry {
+  id: string;
+  term: string;
+  definition: string;
+  created_at: number;
+  updated_at: number;
+}
+
 async function rsaEncrypt(publicKeyPem: string, plaintext: string): Promise<string> {
   if (!crypto.subtle) {
     throw new Error("RSA 加密需要安全上下文，请通过 http://localhost:5180 访问");
@@ -374,5 +382,51 @@ export const api = {
   getBrainsFiles: (team: string, username: string, includeBackups = false) =>
     request<{ files: Array<{ path: string; mtime_ms: number; size: number }> }>(`/brains/files?username=${encodeURIComponent(username)}&includeBackups=${includeBackups}`, {
       headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  // Glossary — Global
+  getGlobalGlossary: () =>
+    request<GlossaryEntry[]>("/glossary/global", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+  createGlobalGlossaryEntry: (term: string, definition: string) =>
+    request<GlossaryEntry>("/glossary/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      body: JSON.stringify({ term, definition }),
+    }),
+  updateGlobalGlossaryEntry: (id: string, term: string, definition: string) =>
+    request<GlossaryEntry>(`/glossary/global/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      body: JSON.stringify({ term, definition }),
+    }),
+  deleteGlobalGlossaryEntry: (id: string) =>
+    request<{ success: boolean }>(`/glossary/global/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+
+  // Glossary — Team
+  getTeamGlossary: (team: string) =>
+    request<GlossaryEntry[]>(`/glossary/team?team=${encodeURIComponent(team)}`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+    }),
+  createTeamGlossaryEntry: (team: string, term: string, definition: string) =>
+    request<GlossaryEntry>(`/glossary/team?team=${encodeURIComponent(team)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      body: JSON.stringify({ term, definition }),
+    }),
+  updateTeamGlossaryEntry: (team: string, id: string, term: string, definition: string) =>
+    request<GlossaryEntry>(`/glossary/team/${id}?team=${encodeURIComponent(team)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      body: JSON.stringify({ term, definition }),
+    }),
+  deleteTeamGlossaryEntry: (team: string, id: string) =>
+    request<{ success: boolean }>(`/glossary/team/${id}?team=${encodeURIComponent(team)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 };

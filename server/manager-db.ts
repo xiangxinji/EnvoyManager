@@ -54,6 +54,19 @@ CREATE TABLE IF NOT EXISTS users (
   created_at      INTEGER NOT NULL
 )`;
 
+const CREATE_GLOSSARY = `
+CREATE TABLE IF NOT EXISTS glossary (
+  id         TEXT PRIMARY KEY NOT NULL,
+  term       TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`;
+
+const GLOSSARY_INDEXES = [
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)",
+];
+
 // ─── Init ───
 
 export function initManagerDB(): void {
@@ -64,6 +77,8 @@ export function initManagerDB(): void {
   db.exec(CREATE_AI_PRESETS);
   db.exec(CREATE_AI_SCENES);
   db.exec(CREATE_USERS);
+  db.exec(CREATE_GLOSSARY);
+  for (const sql of GLOSSARY_INDEXES) db.exec(sql);
 
   // Migration: add nickname and avatar_url columns if missing
   const userCols = getDb().prepare("PRAGMA table_info(users)").all() as { name: string }[];
@@ -374,4 +389,68 @@ export async function authenticateUser(username: string, password: string): Prom
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
+}
+
+// ─── Glossary CRUD ────────────────────────────────────────────
+
+export interface GlossaryEntry {
+  id: string;
+  term: string;
+  definition: string;
+  created_at: number;
+  updated_at: number;
+}
+
+function rowToGlossaryEntry(row: Record<string, unknown>): GlossaryEntry {
+  return {
+    id: row.id as string,
+    term: row.term as string,
+    definition: row.definition as string,
+    created_at: row.created_at as number,
+    updated_at: row.updated_at as number,
+  };
+}
+
+export function listGlossary(): GlossaryEntry[] {
+  const rows = getDb().prepare("SELECT * FROM glossary ORDER BY term ASC").all() as Record<string, unknown>[];
+  return rows.map(rowToGlossaryEntry);
+}
+
+export function getGlossaryEntry(id: string): GlossaryEntry | undefined {
+  const row = getDb().prepare("SELECT * FROM glossary WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  return row ? rowToGlossaryEntry(row) : undefined;
+}
+
+export function createGlossaryEntry(term: string, definition: string): GlossaryEntry {
+  const existing = getDb().prepare("SELECT id FROM glossary WHERE term = ?").get(term);
+  if (existing) throw new Error("术语已存在");
+  const id = randomUUID();
+  const now = Date.now();
+  getDb().prepare(
+    "INSERT INTO glossary (id, term, definition, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(id, term, definition, now, now);
+  return { id, term, definition, created_at: now, updated_at: now };
+}
+
+export function updateGlossaryEntry(id: string, term: string, definition: string): GlossaryEntry {
+  const existing = getGlossaryEntry(id);
+  if (!existing) throw new Error("词汇条目不存在");
+
+  if (term !== existing.term) {
+    const dup = getDb().prepare("SELECT id FROM glossary WHERE term = ? AND id != ?").get(term, id);
+    if (dup) throw new Error("术语已存在");
+  }
+
+  const now = Date.now();
+  getDb().prepare(
+    "UPDATE glossary SET term = ?, definition = ?, updated_at = ? WHERE id = ?"
+  ).run(term, definition, now, id);
+
+  return { ...existing, term, definition, updated_at: now };
+}
+
+export function deleteGlossaryEntry(id: string): void {
+  const existing = getGlossaryEntry(id);
+  if (!existing) throw new Error("词汇条目不存在");
+  getDb().prepare("DELETE FROM glossary WHERE id = ?").run(id);
 }

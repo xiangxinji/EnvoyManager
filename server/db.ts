@@ -154,6 +154,19 @@ const STICKER_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_sticker_hash ON stickers(file_hash)",
 ];
 
+const CREATE_GLOSSARY = `
+CREATE TABLE IF NOT EXISTS glossary (
+  id         TEXT PRIMARY KEY NOT NULL,
+  term       TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`;
+
+const GLOSSARY_INDEXES = [
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)",
+];
+
 // ─── Init ─────────────────────────────────────────────────────
 
 function getDbDir(teamDir: string): string {
@@ -171,6 +184,7 @@ export function initTeamDatabase(teamDir: string): void {
   db.exec(CREATE_TASKS_TABLE);
   db.exec(CREATE_CLOUD_FILES_TABLE);
   db.exec(CREATE_STICKERS_TABLE);
+  db.exec(CREATE_GLOSSARY);
 
   // Migrations: add missing columns before creating indexes
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
@@ -203,7 +217,7 @@ export function initTeamDatabase(teamDir: string): void {
     db.exec("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0");
   }
 
-  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES, ...STICKER_INDEXES]) {
+  for (const sql of [...MESSAGE_INDEXES, ...TASK_INDEXES, ...CLOUD_FILE_INDEXES, ...STICKER_INDEXES, ...GLOSSARY_INDEXES]) {
     db.exec(sql);
   }
 
@@ -678,4 +692,68 @@ export function collectSticker(teamName: string, stickerId: string, userId: stri
     file_hash: original.file_hash,
   });
   return { ok: true, sticker };
+}
+
+// ─── Team Glossary CRUD ────────────────────────────────────────
+
+export interface GlossaryEntry {
+  id: string;
+  term: string;
+  definition: string;
+  created_at: number;
+  updated_at: number;
+}
+
+function rowToGlossaryEntry(row: Record<string, unknown>): GlossaryEntry {
+  return {
+    id: row.id as string,
+    term: row.term as string,
+    definition: row.definition as string,
+    created_at: row.created_at as number,
+    updated_at: row.updated_at as number,
+  };
+}
+
+export function listTeamGlossary(teamName: string): GlossaryEntry[] {
+  const db = getDb(teamName);
+  const rows = db.prepare("SELECT * FROM glossary ORDER BY term ASC").all() as Record<string, unknown>[];
+  return rows.map(rowToGlossaryEntry);
+}
+
+export function createTeamGlossaryEntry(teamName: string, term: string, definition: string): GlossaryEntry {
+  const db = getDb(teamName);
+  const existing = db.prepare("SELECT id FROM glossary WHERE term = ?").get(term);
+  if (existing) throw new Error("术语已存在");
+  const id = randomUUID();
+  const now = Date.now();
+  db.prepare(
+    "INSERT INTO glossary (id, term, definition, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(id, term, definition, now, now);
+  return { id, term, definition, created_at: now, updated_at: now };
+}
+
+export function updateTeamGlossaryEntry(teamName: string, id: string, term: string, definition: string): GlossaryEntry {
+  const db = getDb(teamName);
+  const row = db.prepare("SELECT * FROM glossary WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) throw new Error("词汇条目不存在");
+  const existing = rowToGlossaryEntry(row);
+
+  if (term !== existing.term) {
+    const dup = db.prepare("SELECT id FROM glossary WHERE term = ? AND id != ?").get(term, id);
+    if (dup) throw new Error("术语已存在");
+  }
+
+  const now = Date.now();
+  db.prepare(
+    "UPDATE glossary SET term = ?, definition = ?, updated_at = ? WHERE id = ?"
+  ).run(term, definition, now, id);
+
+  return { ...existing, term, definition, updated_at: now };
+}
+
+export function deleteTeamGlossaryEntry(teamName: string, id: string): void {
+  const db = getDb(teamName);
+  const row = db.prepare("SELECT id FROM glossary WHERE id = ?").get(id);
+  if (!row) throw new Error("词汇条目不存在");
+  db.prepare("DELETE FROM glossary WHERE id = ?").run(id);
 }
