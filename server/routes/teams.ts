@@ -14,6 +14,7 @@ import {
   type TeamMeta,
 } from "../team-registry.js";
 import { loadUsers } from "../user-registry.js";
+import { teamHost } from "../config.js";
 
 export function teamStats(team: Team) {
   const server = team.innerServer;
@@ -58,7 +59,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     };
     await saveMeta(meta);
 
-    const team = new Team({ port, host: "0.0.0.0" });
+    const team = new Team({ port, host: teamHost });
     await team.start();
     teams.set(name, team);
     onTeamCreated?.(name, team);

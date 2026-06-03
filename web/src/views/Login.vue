@@ -23,10 +23,9 @@ async function handleLogin() {
   try {
     const res = await api.adminAuth(user, pass);
     localStorage.setItem("admin_token", res.token);
-    localStorage.setItem("admin_credentials", JSON.stringify({ username: user, password: pass }));
     router.push("/");
-  } catch (e: any) {
-    error.value = e.message || "登录失败";
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : "登录失败";
   } finally {
     loading.value = false;
   }

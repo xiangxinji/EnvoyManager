@@ -6,6 +6,8 @@ import { api } from "./api";
 const router = useRouter();
 const { theme, toggle } = useTheme();
 
+localStorage.removeItem("admin_credentials");
+
 const navItems = [
   { path: "/", label: "概览" },
   { path: "/teams", label: "团队" },
@@ -15,10 +17,9 @@ const navItems = [
 ];
 
 function handleLogout() {
-  if (!confirm("确定要退出登录吗？")) return;
+  if (!window.confirm("确定要退出登录吗？")) return;
   api.adminLogout().catch(() => {});
   localStorage.removeItem("admin_token");
-  localStorage.removeItem("admin_credentials");
   router.push("/login");
 }
 </script>

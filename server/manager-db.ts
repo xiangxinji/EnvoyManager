@@ -10,8 +10,8 @@ const MANAGER_DB_DIR = join(homedir(), ".envoy", "manager", "db");
 const MANAGER_DB_PATH = join(MANAGER_DB_DIR, "manager.db");
 export const AVATARS_DIR = join(homedir(), ".envoy", "avatars");
 
-const DEFAULT_USERNAME = "admin";
-const DEFAULT_PASSWORD = "admin123";
+const DEFAULT_USERNAME = process.env.ENVOY_DEFAULT_ADMIN_USERNAME || "admin";
+const DEFAULT_PASSWORD = process.env.ENVOY_DEFAULT_ADMIN_PASSWORD || "admin123";
 
 let db: Database.Database;
 
@@ -84,7 +84,7 @@ export function initManagerDB(): void {
   if (row.count === 0) {
     const hash = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
     db.prepare("INSERT INTO admin (id, username, password_bcrypt) VALUES (1, ?, ?)").run(DEFAULT_USERNAME, hash);
-    console.log(`[manager-db] Default admin created (username: ${DEFAULT_USERNAME}, password: ${DEFAULT_PASSWORD})`);
+    console.log(`[manager-db] Default admin created (username: ${DEFAULT_USERNAME})`);
   }
 }
 

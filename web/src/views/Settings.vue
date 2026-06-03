@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import { api } from "../api";
 
 // ─── Admin ───
 
+const router = useRouter();
 const username = ref("");
 const password = ref("");
-const confirm = ref("");
+const confirmPassword = ref("");
 const loading = ref(false);
 const error = ref("");
 const success = ref("");
@@ -100,7 +102,7 @@ onMounted(async () => {
 async function handleSave() {
   const user = username.value.trim();
   const pass = password.value;
-  const confirmPass = confirm.value;
+  const confirmPass = confirmPassword.value;
 
   if (!user) {
     error.value = "用户名不能为空";
@@ -134,7 +136,7 @@ async function handleSave() {
 }
 
 async function handleLogout() {
-  if (!confirm("确定要退出登录吗？")) return;
+  if (!window.confirm("确定要退出登录吗？")) return;
   try {
     await api.adminLogout();
   } catch {}
@@ -189,7 +191,7 @@ async function handleSceneSave() {
           <label for="confirm">确认密码</label>
           <input
             id="confirm"
-            v-model="confirm"
+            v-model="confirmPassword"
             type="password"
             placeholder="再次输入密码"
             :disabled="loading"

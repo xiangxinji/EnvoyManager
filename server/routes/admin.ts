@@ -28,6 +28,9 @@ export default function adminRoutes(app: Hono) {
   });
 
   app.get("/api/admin/profile", async (c) => {
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token || !validateSession(token)) return c.json({ error: "unauthorized" }, 401);
+
     const admin = getAdminConfig();
     return c.json({ username: admin.username });
   });

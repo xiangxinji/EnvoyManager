@@ -16,9 +16,10 @@ import brainsRoutes from "./routes/brains.js";
 import { initCrypto } from "./crypto.js";
 import { initManagerDB, AVATARS_DIR } from "./manager-db.js";
 import { initTeamDatabase, insertMessage, upsertTask, queryActiveTasks } from "./db.js";
+import { managerPort, resolveCorsOrigin, teamHost } from "./config.js";
 
 const app = new Hono();
-app.use("*", cors());
+app.use("*", cors({ origin: resolveCorsOrigin }));
 
 const teamInstances = new Map<string, Team>();
 
@@ -31,7 +32,7 @@ initCrypto();
 async function restoreTeams(): Promise<void> {
   const records = await loadRegistry();
   for (const rec of records) {
-    const team = new Team({ port: rec.port, host: "0.0.0.0" });
+    const team = new Team({ port: rec.port, host: teamHost });
     await team.start();
     teamInstances.set(rec.name, team);
     initTeamDatabase(getTeamDir(rec.name));
@@ -128,11 +129,9 @@ userRoutes(app);
 dashboardRoutes(app, teamInstances);
 
 // Start
-const PORT = Number(process.env.MANAGER_PORT) || 8080;
-
 await ensureTeamsDir();
 await restoreTeams();
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
+serve({ fetch: app.fetch, port: managerPort }, (info) => {
   console.log(`Manager API running on http://localhost:${info.port}`);
 });

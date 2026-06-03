@@ -2,6 +2,7 @@
   "name": "envoy-manager-server",
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@10.9.0",
   "scripts": {
     "dev": "tsx watch index.ts",
     "start": "tsx index.ts",
