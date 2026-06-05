@@ -92,6 +92,106 @@ cd web && npm run build
 - **多模型支持** — OpenAI、Anthropic、Google、DeepSeek 及 OpenAI 兼容接口，可配置多个预设和场景参数
 - **安全传输** — 密码通过 RSA-OAEP 加密传输，服务端 bcrypt 哈希存储
 
+## Docker 部署
+
+### 前置条件
+
+- Docker 已安装
+- `envoy/` 子模块已检出（在项目根目录执行）：
+
+```bash
+git submodule update --init
+```
+
+### 构建镜像
+
+在项目根目录执行：
+
+```bash
+docker build -f manager/Dockerfile -t envoy-manager .
+```
+
+### 运行容器
+
+#### 基础启动
+
+```bash
+docker run -d \
+  --name envoy-manager \
+  -p 8080:8080 \
+  -p 3001-3020:3001-3020 \
+  -v envoy-data:/root/.envoy \
+  envoy-manager
+```
+
+#### 自定义配置
+
+```bash
+docker run -d \
+  --name envoy-manager \
+  -p 8080:8080 \
+  -p 3001-3020:3001-3020 \
+  -v envoy-data:/root/.envoy \
+  -e MANAGER_CORS_ORIGINS=http://localhost:8080,tauri://localhost \
+  envoy-manager
+```
+
+#### 使用 Docker Compose
+
+```bash
+cd manager
+docker compose up -d
+```
+
+### 端口说明
+
+| 端口 | 用途 | 可配置 |
+|------|------|--------|
+| 8080 | Manager API 服务 | `MANAGER_PORT` |
+| 3001-3020 | Team WebSocket（每个团队分配一个，自动递增） | 自动从 3001 起 |
+
+### Docker 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MANAGER_PORT` | `8080` | API 服务端口 |
+| `ENVOY_TEAM_HOST` | `0.0.0.0` | Team WebSocket 绑定地址 |
+| `MANAGER_CORS_ORIGINS` | Tauri 来源 | CORS 允许的来源，多个用逗号分隔 |
+| `NODE_ENV` | `production` | 运行环境 |
+| `ENVOY_DEFAULT_ADMIN_USERNAME` | `admin` | 首次启动默认管理员用户名 |
+| `ENVOY_DEFAULT_ADMIN_PASSWORD` | `admin123` | 首次启动默认管理员密码 |
+
+### 数据持久化
+
+容器内数据存储在 `/root/.envoy/`，建议挂载 Docker Volume 或宿主机目录：
+
+```bash
+# 使用 Docker Volume
+-v envoy-data:/root/.envoy
+
+# 或挂载宿主机目录
+-v /path/to/envoy-data:/root/.envoy
+```
+
+### 常用操作
+
+```bash
+# 查看日志
+docker logs -f envoy-manager
+
+# 停止
+docker stop envoy-manager
+
+# 重启
+docker restart envoy-manager
+
+# 删除容器（数据保留在 volume 中）
+docker rm envoy-manager
+
+# 删除数据卷（谨慎，不可恢复）
+docker volume rm envoy-data
+```
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
