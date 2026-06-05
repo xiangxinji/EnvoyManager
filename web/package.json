@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "envoy-client": "file:../..",
     "vue": "^3",
     "vue-router": "^4"
   },
