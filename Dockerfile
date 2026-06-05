@@ -3,14 +3,14 @@
 #   docker build -f manager/Dockerfile -t envoy-manager .
 #
 # 运行:
-#   docker run -d -p 8080:8080 -p 3001-3020:3001-3020 -v envoy-data:/root/.envoy envoy-manager
+#   docker run -d -p 443:443 -p 8080:8080 -p 3001-3020:3001-3020 -v envoy-data:/root/.envoy envoy-manager
 
 # ---- Stage 1: 构建 Web 前端 ----
 FROM node:22-bookworm-slim AS web-builder
 
 WORKDIR /build
-COPY manager/web/package.json manager/web/package-lock.json ./
-RUN npm ci
+COPY manager/web/package.json ./
+RUN npm install
 COPY manager/web/ .
 RUN npm run build
 
@@ -18,11 +18,14 @@ RUN npm run build
 FROM node:22-bookworm-slim AS server-deps
 
 WORKDIR /build
-COPY manager/server/package.json manager/server/package-lock.json ./
-RUN npm ci
+COPY manager/server/package.json ./
+RUN npm install
 
 # ---- Stage 3: 运行时镜像 ----
 FROM node:22-bookworm-slim
+
+# openssl 用于生成自签 HTTPS 证书
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -41,15 +44,15 @@ COPY shared/ ./shared/
 # 拷贝构建好的 Web 前端
 COPY --from=web-builder /build/dist ./manager/web/dist/
 
-# envoy 的 transport.ts import 'ws'，需要从 /app/node_modules 可解析
-# 将 manager/server/node_modules/ws 符号链接到 /app/node_modules
+# envoy 的 transport.ts import 'ws'，需要在 /app/node_modules 安装 ws
 RUN mkdir -p /app/node_modules \
-    && ln -s /app/manager/server/node_modules/ws /app/node_modules/ws
+    && npm install --prefix /app ws
 
 # 数据持久化目录
 VOLUME /root/.envoy
 
-# API 端口 + Team WebSocket 端口范围
+# HTTPS + HTTP + Team WebSocket 端口
+EXPOSE 443
 EXPOSE 8080
 EXPOSE 3001-3020
 
@@ -57,5 +60,9 @@ ENV MANAGER_PORT=8080
 ENV ENVOY_TEAM_HOST=0.0.0.0
 ENV NODE_ENV=production
 
+# 入口脚本：自动生成自签证书 + 启动 server
+COPY manager/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 WORKDIR /app/manager/server
-CMD ["npx", "tsx", "index.ts"]
+CMD ["/app/entrypoint.sh"]

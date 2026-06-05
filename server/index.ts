@@ -17,10 +17,11 @@ import glossaryRoutes from "./routes/glossary.js";
 import { initCrypto } from "./crypto.js";
 import { initManagerDB, AVATARS_DIR } from "./manager-db.js";
 import { initTeamDatabase, insertMessage, upsertTask, queryActiveTasks } from "./db.js";
-import { managerPort, resolveCorsOrigin, teamHost } from "./config.js";
+import { managerPort, teamHost } from "./config.js";
 
 const app = new Hono();
-app.use("*", cors({ origin: resolveCorsOrigin }));
+// Allow all origins — self-hosted manager, actual security is via auth tokens
+app.use("*", cors());
 
 const teamInstances = new Map<string, Team>();
 
@@ -130,10 +131,42 @@ teamRoutes(app, teamInstances, (name, team) => {
 userRoutes(app);
 dashboardRoutes(app, teamInstances);
 
+// Serve web frontend (production: static files from ../web/dist)
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
+const webDistDir = path.resolve(import.meta.dirname, "../web/dist");
+if (existsSync(webDistDir)) {
+  app.use("/*", serveStatic({ root: webDistDir }));
+  // SPA fallback: unmatched GET routes return index.html
+  const indexHtml = readFileSync(path.join(webDistDir, "index.html"), "utf-8");
+  app.get("*", (c) => c.html(indexHtml));
+}
+
 // Start
 await ensureTeamsDir();
 await restoreTeams();
 
+// Always serve HTTP (for Tauri client / API access)
 serve({ fetch: app.fetch, port: managerPort }, (info) => {
   console.log(`Manager API running on http://localhost:${info.port}`);
 });
+
+// Also serve HTTPS if cert exists (for browser web frontend — Web Crypto needs secure context)
+import https from "node:https";
+
+const certDir = path.resolve(process.env.HOME || process.env.USERPROFILE || "~", ".envoy");
+const certFile = path.join(certDir, "cert.pem");
+const keyFile = path.join(certDir, "key.pem");
+
+if (existsSync(certFile) && existsSync(keyFile)) {
+  serve(
+    {
+      fetch: app.fetch,
+      port: 443,
+      createServer: https.createServer,
+      serverOptions: { cert: readFileSync(certFile), key: readFileSync(keyFile) },
+    },
+    () => console.log("Manager web frontend running on https://localhost:443"),
+  );
+}
