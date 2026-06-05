@@ -1,0 +1,21 @@
+services:
+  manager:
+    build:
+      context: ..
+      dockerfile: manager/Dockerfile
+    ports:
+      - "8080:8080"
+      # Team WebSocket 端口（每个团队分配一个，从 3001 起）
+      - "3001-3020:3001-3020"
+    volumes:
+      - envoy-data:/root/.envoy
+    environment:
+      - MANAGER_PORT=8080
+      - ENVOY_TEAM_HOST=0.0.0.0
+      # 按需配置 CORS，多源用逗号分隔
+      # - MANAGER_CORS_ORIGINS=http://localhost:8080,tauri://localhost
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  envoy-data:
