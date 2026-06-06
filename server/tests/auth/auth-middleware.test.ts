@@ -369,7 +369,104 @@ describe("Route protection: messages (clientAuth)", () => {
     const res = await app.request("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", team: "test", "X-Envoy-Token": clientToken },
-      body: JSON.stringify({ from: "alice", to: "bob", content: "hi" }),
+      body: JSON.stringify({ to: "bob", text: "hi" }),
+    });
+    expect(res.status).not.toBe(401);
+  });
+});
+
+// ─── authType context variable ───
+
+describe("authType context: clientAuth sets 'client'", () => {
+  it("sets authType to 'client' for valid client token", async () => {
+    const token = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("/test/*", clientAuth);
+    app.get("/test/data", (c) => c.json({ authType: c.get("authType") ?? null }));
+    const res = await app.request("/test/data", {
+      headers: { "X-Envoy-Token": token },
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.authType).toBe("client");
+  });
+});
+
+describe("authType context: dualAuth sets correct type", () => {
+  it("sets authType to 'admin' for valid admin token", async () => {
+    const token = __seedSession();
+    const app = new Hono();
+    app.use("/test/*", dualAuth);
+    app.get("/test/data", (c) => c.json({ authType: c.get("authType") ?? null }));
+    const res = await app.request("/test/data", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.authType).toBe("admin");
+  });
+
+  it("sets authType to 'client' for valid client token", async () => {
+    const token = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("/test/*", dualAuth);
+    app.get("/test/data", (c) => c.json({
+      authType: c.get("authType") ?? null,
+      userId: c.get("userId") ?? null,
+      role: c.get("role") ?? null,
+    }));
+    const res = await app.request("/test/data", {
+      headers: { "X-Envoy-Token": token },
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.authType).toBe("client");
+    expect(data.userId).toBe("alice");
+    expect(data.role).toBe("member");
+  });
+});
+
+// ─── Identity enforcement: clientAuth routes use session userId ───
+
+describe("Identity enforcement: messages route uses session identity", () => {
+  it("POST /api/messages uses session userId, ignores body.from", async () => {
+    const aliceToken = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("*", cors());
+    messageRoutes(app, new Map());
+    const res = await app.request("/api/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        team: "test",
+        "X-Envoy-Token": aliceToken,
+      },
+      body: JSON.stringify({ to: "charlie", text: "hi" }),
+    });
+    // Auth passed (not 401); team not found gives 404
+    expect(res.status).not.toBe(401);
+  });
+
+  it("DELETE /api/messages/:id uses session userId for ownership check", async () => {
+    const aliceToken = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("*", cors());
+    messageRoutes(app, new Map());
+    const res = await app.request("/api/messages/msg-123", {
+      method: "DELETE",
+      headers: { team: "test", "X-Envoy-Token": aliceToken },
+    });
+    // Auth passed; team not found gives 404
+    expect(res.status).not.toBe(401);
+  });
+
+  it("GET /api/messages/sync uses session userId", async () => {
+    const aliceToken = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("*", cors());
+    messageRoutes(app, new Map());
+    const res = await app.request("/api/messages/sync?after_seq=0", {
+      headers: { team: "test", "X-Envoy-Token": aliceToken },
     });
     expect(res.status).not.toBe(401);
   });

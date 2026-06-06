@@ -160,17 +160,20 @@ async function clientAuth(c: Context, next: Next) {
   if (!token || !validateClientToken(token)) {
     return c.json({ error: "unauthorized" }, 401);
   }
+  c.set("authType", "client");
   await next();
 }
 
 async function dualAuth(c: Context, next: Next) {
   const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
   if (adminToken && validateSession(adminToken)) {
+    c.set("authType", "admin");
     await next();
     return;
   }
   const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
   if (clientToken && validateClientToken(clientToken)) {
+    c.set("authType", "client");
     await next();
     return;
   }

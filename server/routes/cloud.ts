@@ -3,7 +3,6 @@ import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { getCloudDir, loadMeta } from "../team-registry.js";
-import { validateSession } from "./admin.js";
 import { dualAuth } from "./middleware.js";
 import {
   insertCloudFile,
@@ -96,10 +95,13 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
     const formData = await c.req.formData();
     const file = formData.get("file");
     const parentId = (formData.get("parentId") as string | null) || null;
-    const uploadedBy = formData.get("uploadedBy") as string | null;
+    // Admin may specify uploadedBy; client always uses session identity
+    const uploadedBy = isAdmin ? ((formData.get("uploadedBy") as string | null) || userId!) : userId!;
 
     if (!file || !(file instanceof File)) return c.json({ error: "file is required" }, 400);
     if (!uploadedBy) return c.json({ error: "uploadedBy is required" }, 400);
@@ -193,9 +195,13 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
     const body = await c.req.json<{ name?: string; parentId?: string | null; createdBy?: string }>();
     if (!body.name) return c.json({ error: "name is required" }, 400);
-    if (!body.createdBy) return c.json({ error: "createdBy is required" }, 400);
+    // Admin may specify createdBy; client always uses session identity
+    const createdBy = isAdmin ? (body.createdBy || userId!) : userId!;
+    if (!createdBy) return c.json({ error: "createdBy is required" }, 400);
 
     const parentId = body.parentId || null;
 
@@ -225,7 +231,7 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
       parent_id: parentId,
       type: "directory",
       size: 0,
-      uploaded_by: body.createdBy,
+      uploaded_by: createdBy,
       created_at: Date.now(),
       updated_at: Date.now(),
     });
@@ -246,13 +252,12 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
     if (!team) return c.json({ error: "team not found" }, 404);
 
     const id = c.req.param("id");
-    const username = c.req.query("from");
 
     // Admin requests bypass the leader check
-    const isAdmin = !!validateSession(c.req.header("Authorization")?.replace("Bearer ", "") ?? "");
+    const isAdmin = (c.get("authType") as string) === "admin";
     if (!isAdmin) {
-      if (!username) return c.json({ error: "from is required" }, 400);
-      const isLeader = await ensureLeader(teamName, username);
+      const userId = c.get("userId") as string;
+      const isLeader = await ensureLeader(teamName, userId);
       if (!isLeader) {
         return c.json({ error: "only leader can delete" }, 403);
       }
@@ -366,11 +371,14 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
     const formData = await c.req.formData();
     const file = formData.get("file") as File | null;
     const filename = formData.get("filename") as string | null;
     const description = formData.get("description") as string | null;
-    const uploadedBy = formData.get("uploadedBy") as string | null;
+    // Admin may specify uploadedBy; client always uses session identity
+    const uploadedBy = isAdmin ? ((formData.get("uploadedBy") as string | null) || userId!) : userId!;
     const taskContext = formData.get("taskContext") as string | null;
 
     if (!file && !filename) return c.json({ error: "file or filename is required" }, 400);
@@ -422,7 +430,7 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
 
       recordUsage({
         team: teamName,
-        username: (c.get("userId" as never) as string) ?? "",
+        username: userId ?? "",
         scene: "cloud_organize",
         presetId: resolved.presetId,
         promptTokens: result.usage?.promptTokens ?? 0,

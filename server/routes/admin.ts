@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { randomBytes } from "node:crypto";
 import { verifyAdmin, updateAdmin, getAdminConfig } from "../settings.js";
 import { decryptWithPrivateKey } from "../crypto.js";
+import { adminAuth } from "./middleware.js";
 
 const sessions = new Map<string, { createdAt: number }>();
 
@@ -37,18 +38,12 @@ export default function adminRoutes(app: Hono) {
     return c.json({ ok: true });
   });
 
-  app.get("/api/admin/profile", async (c) => {
-    const token = c.req.header("Authorization")?.replace("Bearer ", "");
-    if (!token || !validateSession(token)) return c.json({ error: "unauthorized" }, 401);
-
+  app.get("/api/admin/profile", adminAuth, async (c) => {
     const admin = getAdminConfig();
     return c.json({ username: admin.username });
   });
 
-  app.post("/api/admin/update", async (c) => {
-    const token = c.req.header("Authorization")?.replace("Bearer ", "");
-    if (!token || !validateSession(token)) return c.json({ error: "unauthorized" }, 401);
-
+  app.post("/api/admin/update", adminAuth, async (c) => {
     const body = await c.req.json<{ username?: string; password?: string }>();
     const newUsername = body.username?.trim();
     const encryptedPassword = body.password;

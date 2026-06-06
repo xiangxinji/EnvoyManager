@@ -104,9 +104,10 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ from?: string; to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; sticker?: unknown; channel?: string; mentions?: string[]; cloudRefs?: unknown[] }>();
-    if (!body.from || !body.text) {
-      return c.json({ error: "from, text are required" }, 400);
+    const from = c.get("userId") as string;
+    const body = await c.req.json<{ to?: string; text?: string; source?: string; attachments?: unknown[]; forwarded?: unknown[]; quote?: unknown; sticker?: unknown; channel?: string; mentions?: string[]; cloudRefs?: unknown[] }>();
+    if (!body.text) {
+      return c.json({ error: "text is required" }, 400);
     }
 
     // Channel message: to is optional, auto-set to "__team__"
@@ -148,7 +149,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const { id, seq } = insertMessage(teamName, {
       type: "chat",
       subtype: "chat",
-      from_user: body.from,
+      from_user: from,
       to_user: toUser,
       content: body.text,
       extra: Object.keys(extra).length > 0 ? extra : undefined,
@@ -163,21 +164,21 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
 
     // Broadcast or relay
     if (isChannel) {
-      team.broadcastChat(body.from, "chat", payload);
+      team.broadcastChat(from, "chat", payload);
       // Send @mention notify to mentioned members
       const notifyTargets = mentionsList.includes("all")
-        ? team.getOnlineMemberIds().filter((id: string) => id !== body.from)
-        : mentionsList.filter((id: string) => id !== body.from);
+        ? team.getOnlineMemberIds().filter((id: string) => id !== from)
+        : mentionsList.filter((id: string) => id !== from);
       for (const mentionedId of notifyTargets) {
         team.innerServer.notify(mentionedId, "channel-mention", {
-          from: body.from,
+          from,
           channel: body.channel,
           text: body.text.substring(0, 50),
           msgId: id,
         });
       }
     } else {
-      team.innerServer.relay(body.from, toUser, "chat", payload);
+      team.innerServer.relay(from, toUser, "chat", payload);
     }
     return c.json({ ok: true, id, seq });
   });
@@ -189,13 +190,12 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const userId = c.get("userId") as string;
     const msgId = c.req.param("id");
-    const from = c.req.query("from");
-    if (!from) return c.json({ error: "from is required" }, 400);
 
     const msg = getMessageById(teamName, msgId);
     if (!msg) return c.json({ error: "message not found" }, 404);
-    if (msg.from_user !== from) return c.json({ error: "not authorized" }, 403);
+    if (msg.from_user !== userId) return c.json({ error: "not authorized" }, 403);
 
     const deleted = deleteMessage(teamName, msgId);
     if (!deleted) return c.json({ error: "message not found" }, 404);
@@ -215,17 +215,17 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const from = c.get("userId") as string;
     const body = await c.req.json<{
-      from?: string;
       content?: string;
       subscribe?: string[];
       mode?: "serial" | "parallel";
     }>();
-    if (!body.from || !body.content || !body.subscribe) {
-      return c.json({ error: "from, content, subscribe are required" }, 400);
+    if (!body.content || !body.subscribe) {
+      return c.json({ error: "content, subscribe are required" }, 400);
     }
 
-    const taskId = team.innerServer.submitFrom(body.from, {
+    const taskId = team.innerServer.submitFrom(from, {
       content: body.content,
       subscribe: body.subscribe,
       mode: body.mode ?? "serial",
@@ -240,17 +240,17 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const from = c.get("userId") as string;
     const taskId = c.req.param("id");
     const body = await c.req.json<{
-      from?: string;
       success?: boolean;
       data?: unknown;
       error?: string;
       trace?: unknown[];
       submissionId?: string;
     }>();
-    if (!body.from || body.success === undefined) {
-      return c.json({ error: "from, success are required" }, 400);
+    if (body.success === undefined) {
+      return c.json({ error: "success is required" }, 400);
     }
 
     // Deduplicate by submissionId: skip if already processed
@@ -263,22 +263,22 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
         return c.json({ ok: true, deduplicated: true });
       }
       // Record the submissionId to prevent future duplicates
-      team.innerServer.addResourceToTask(taskId, "submission-id", body.from!, { id: body.submissionId }, false);
+      team.innerServer.addResourceToTask(taskId, "submission-id", from, { id: body.submissionId }, false);
     }
 
     // Add execution-trace to task before receiveResult, so the notification includes both
     if (body.trace && Array.isArray(body.trace) && body.trace.length > 0) {
-      team.innerServer.addResourceToTask(taskId, "execution-trace", body.from!, { steps: body.trace }, false);
+      team.innerServer.addResourceToTask(taskId, "execution-trace", from, { steps: body.trace }, false);
     }
 
-    team.innerServer.receiveResult(body.from, taskId, body.success, body.data, body.error);
+    team.innerServer.receiveResult(from, taskId, body.success, body.data, body.error);
 
     // Persist result to disk
     try {
       const resDir = getResourcesDir(teamName, taskId);
       await mkdir(resDir, { recursive: true });
       await writeFile(
-        join(resDir, `${body.from}.json`),
+        join(resDir, `${from}.json`),
         JSON.stringify({ success: body.success, data: body.data, error: body.error, timestamp: Date.now() }, null, 2),
         "utf-8"
       );
@@ -296,13 +296,13 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const from = c.get("userId") as string;
     const taskId = c.req.param("id");
     const resDir = getResourcesDir(teamName, taskId);
     await mkdir(resDir, { recursive: true });
 
     const formData = await c.req.formData();
     const file = formData.get("file");
-    const from = formData.get("from") as string | null;
 
     if (!file || !(file instanceof File)) {
       return c.json({ error: "file is required" }, 400);
@@ -313,7 +313,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     await writeFile(filePath, buffer);
 
     // Register file-resource in task resources (deduplicate by filename)
-    if (from) {
+    {
       const task = team.innerServer.getTask(taskId);
       const alreadyExists = task?.resources.some(
         (r) => r.type === "file-resource" && (r.data as any)?.filename === file.name
@@ -398,8 +398,6 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     if (!team) return c.json({ error: "team not found" }, 404);
 
     const taskId = c.req.param("id");
-    const body = await c.req.json<{ from?: string }>();
-    if (!body.from) return c.json({ error: "from is required" }, 400);
 
     const task = team.innerServer.getTask(taskId);
     if (!task) return c.json({ error: "task not found" }, 404);
@@ -418,8 +416,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const user = c.req.query("user");
-    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+    const user = c.get("userId") as string;
 
     const afterSeq = Number(c.req.query("after_seq") ?? 0);
     const limit = Math.min(Number(c.req.query("limit") ?? 200), 500);
@@ -436,8 +433,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const user = c.req.query("user");
-    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+    const user = c.get("userId") as string;
 
     const conversations = queryConversations(teamName, user);
     return c.json(conversations);
@@ -465,11 +461,10 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const from = c.get("userId") as string;
     const formData = await c.req.formData();
     const file = formData.get("file");
-    const from = formData.get("from") as string | null;
     if (!file || !(file instanceof File)) return c.json({ error: "file is required" }, 400);
-    if (!from) return c.json({ error: "from is required" }, 400);
 
     const buffer = Buffer.from(await file.arrayBuffer());
     if (buffer.length > MAX_STICKER_SIZE) {
@@ -510,10 +505,11 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const body = await c.req.json<{ sticker_id?: string; user_id?: string }>();
-    if (!body.sticker_id || !body.user_id) return c.json({ error: "sticker_id and user_id are required" }, 400);
+    const userId = c.get("userId") as string;
+    const body = await c.req.json<{ sticker_id?: string }>();
+    if (!body.sticker_id) return c.json({ error: "sticker_id is required" }, 400);
 
-    const result = collectSticker(teamName, body.sticker_id, body.user_id);
+    const result = collectSticker(teamName, body.sticker_id, userId);
     if (!result.ok) {
       const status = result.reason === "not_found" ? 404 : 409;
       const messages: Record<string, string> = {
@@ -536,8 +532,7 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
-    const user = c.req.query("user");
-    if (!user) return c.json({ error: "user query parameter is required" }, 400);
+    const user = c.get("userId") as string;
 
     const records = listStickersByUser(teamName, user);
     const stickers = records.map((r) => ({
@@ -559,13 +554,12 @@ export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
     const team = teams.get(teamName);
     if (!team) return c.json({ error: "team not found" }, 404);
 
+    const userId = c.get("userId") as string;
     const stickerId = c.req.param("id");
-    const from = c.req.query("from");
-    if (!from) return c.json({ error: "from is required" }, 400);
 
     const sticker = getStickerById(teamName, stickerId);
     if (!sticker) return c.json({ error: "sticker not found" }, 404);
-    if (sticker.user_id !== from) return c.json({ error: "not authorized" }, 403);
+    if (sticker.user_id !== userId) return c.json({ error: "not authorized" }, 403);
 
     deleteSticker(teamName, stickerId);
     return c.json({ ok: true });

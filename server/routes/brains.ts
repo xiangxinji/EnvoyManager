@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
-import { clientAuth, dualAuth } from "./middleware.js";
+import { dualAuth } from "./middleware.js";
 import { mkdir, writeFile, readFile, rename, readdir, stat } from "node:fs/promises";
 import { join, dirname, resolve, sep } from "node:path";
 
@@ -49,14 +49,18 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
 
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
     const body = await c.req.json<{
       username?: string;
       files?: Array<{ path: string; content: string; mtime_ms?: number; size?: number }>;
     }>();
-    if (!body.username) return c.json({ error: "username is required" }, 400);
+    // Client must use session identity; admin may specify any user
+    const effectiveUser = isAdmin ? (body.username ?? userId!) : userId!;
+    if (!effectiveUser) return c.json({ error: "username is required" }, 400);
     if (!Array.isArray(body.files)) return c.json({ error: "files array is required" }, 400);
 
-    const userDir = getBrainsDir(teamName, body.username);
+    const userDir = getBrainsDir(teamName, effectiveUser);
     await mkdir(userDir, { recursive: true });
     const meta = await loadMeta(userDir);
 
@@ -65,7 +69,7 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
       if (!file.path || typeof file.content !== "string") continue;
 
       try {
-        resolveBrainsPath(teamName, body.username, file.path);
+        resolveBrainsPath(teamName, effectiveUser, file.path);
       } catch {
         continue;
       }
@@ -96,7 +100,10 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
 
-    const username = c.req.query("username");
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
+    // Client must use session identity; admin may specify any user
+    const username = isAdmin ? (c.req.query("username") || userId!) : userId!;
     if (!username) return c.json({ error: "username is required" }, 400);
 
     const includeBackups = c.req.query("includeBackups") === "true";
@@ -146,7 +153,10 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
 
-    const username = c.req.query("username");
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
+    // Client must use session identity; admin may specify any user
+    const username = isAdmin ? (c.req.query("username") || userId!) : userId!;
     if (!username) return c.json({ error: "username is required" }, 400);
 
     const reqPath = c.req.path;
@@ -179,18 +189,22 @@ export default function brainsRoutes(app: Hono, teams: Map<string, Team>) {
     if (!teamName) return c.json({ error: "team header is required" }, 400);
     if (!teams.has(teamName)) return c.json({ error: "team not found" }, 404);
 
+    const isAdmin = (c.get("authType") as string) === "admin";
+    const userId = c.get("userId") as string | undefined;
     const body = await c.req.json<{ username?: string; path?: string; newPath?: string }>();
-    if (!body.username) return c.json({ error: "username is required" }, 400);
+    // Client must use session identity; admin may specify any user
+    const effectiveUser = isAdmin ? (body.username ?? userId!) : userId!;
+    if (!effectiveUser) return c.json({ error: "username is required" }, 400);
     if (!body.path || !body.newPath) return c.json({ error: "path and newPath are required" }, 400);
 
     try {
-      resolveBrainsPath(teamName, body.username, body.path);
-      resolveBrainsPath(teamName, body.username, body.newPath);
+      resolveBrainsPath(teamName, effectiveUser, body.path);
+      resolveBrainsPath(teamName, effectiveUser, body.newPath);
     } catch {
       return c.json({ error: "invalid path" }, 400);
     }
 
-    const userDir = getBrainsDir(teamName, body.username);
+    const userDir = getBrainsDir(teamName, effectiveUser);
     const oldFullPath = join(userDir, body.path);
     const newFullPath = join(userDir, body.newPath);
 
