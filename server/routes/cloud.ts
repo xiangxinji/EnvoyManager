@@ -1,10 +1,10 @@
-import type { Hono, Context, Next } from "hono";
+import type { Hono } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { getCloudDir, loadMeta } from "../team-registry.js";
 import { validateSession } from "./admin.js";
-import { validateClientToken } from "./users.js";
+import { dualAuth } from "./middleware.js";
 import {
   insertCloudFile,
   getCloudFileById,
@@ -23,20 +23,6 @@ import {
 } from "../db.js";
 import { resolveForScene } from "../settings.js";
 import { handleCloudOrganize } from "../services/ai/cloudOrganize.js";
-
-async function dualAuth(c: Context, next: Next) {
-  const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (adminToken && validateSession(adminToken)) {
-    await next();
-    return;
-  }
-  const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
-  if (clientToken && validateClientToken(clientToken)) {
-    await next();
-    return;
-  }
-  return c.json({ error: "unauthorized" }, 401);
-}
 
 function resolveFilesystemPath(teamName: string, relativePath: string): string {
   const cloudRoot = resolve(getCloudDir(teamName));

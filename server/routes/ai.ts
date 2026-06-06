@@ -1,6 +1,5 @@
-import type { Hono, Context, Next } from "hono";
-import { validateSession } from "./admin.js";
-import { validateClientToken } from "./users.js";
+import type { Hono } from "hono";
+import { adminAuth, clientAuth } from "./middleware.js";
 import {
   getAIConfig,
   resolveForScene,
@@ -19,23 +18,6 @@ import { handleTaskReview } from "../services/ai/review.js";
 import { handleAutoReplyGenerate } from "../services/ai/chat.js";
 import { PROVIDERS } from "../services/ai/constants.js";
 import type { SceneType } from "../../../shared/types/ai.js";
-
-async function adminAuth(c: Context, next: Next) {
-  const token = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (!token || !validateSession(token)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
-}
-
-async function clientAuth(c: Context, next: Next) {
-  const token = c.req.header("X-Envoy-Token")
-    || c.req.query("token");
-  if (!token || !validateClientToken(token)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
-}
 
 function maskApiKey(apiKey: string): string {
   if (apiKey.length <= 8) return "****";
@@ -59,6 +41,7 @@ export default function aiRoutes(app: Hono) {
 
   app.use("/api/ai/chat/*", clientAuth);
   app.use("/api/ai/task/generate", clientAuth);
+  app.use("/api/ai/task/analyze", clientAuth);
   const router = createAIRoutes({ getConfig: getAIConfig, resolveForScene });
   app.route("/api/ai", router);
 

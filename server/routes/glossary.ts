@@ -1,7 +1,6 @@
-import type { Hono, Context, Next } from "hono";
+import type { Hono } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
-import { validateSession } from "./admin.js";
-import { validateClientToken } from "./users.js";
+import { adminAuth, clientAuth } from "./middleware.js";
 import {
   listGlossary,
   createGlossaryEntry,
@@ -15,23 +14,6 @@ import {
   deleteTeamGlossaryEntry,
 } from "../db.js";
 import type { GlossaryEntry } from "../manager-db.js";
-
-async function adminAuth(c: Context, next: Next) {
-  const token = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (!token || !validateSession(token)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
-}
-
-async function clientAuth(c: Context, next: Next) {
-  const token = c.req.header("X-Envoy-Token")
-    || c.req.query("token");
-  if (!token || !validateClientToken(token)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
-}
 
 export default function glossaryRoutes(app: Hono, teams: Map<string, Team>) {
   // ─── Client-authenticated: Agent fetches combined glossary ───

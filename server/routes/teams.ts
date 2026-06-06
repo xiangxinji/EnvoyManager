@@ -15,6 +15,7 @@ import {
 } from "../team-registry.js";
 import { loadUsers } from "../user-registry.js";
 import { teamHost } from "../config.js";
+import { adminAuth } from "./middleware.js";
 
 export function teamStats(team: Team) {
   const server = team.innerServer;
@@ -35,6 +36,8 @@ export function teamStats(team: Team) {
 }
 
 export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCreated?: (name: string, team: Team) => void) {
+  app.use("/api/teams/*", adminAuth);
+
   app.post("/api/teams", async (c) => {
     const body = await c.req.json<{
       name?: string;

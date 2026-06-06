@@ -2,8 +2,10 @@ import type { Hono } from "hono";
 import { Team } from "../../../envoy/packages/teams/team.js";
 import { loadRegistry } from "../team-registry.js";
 import { queryTasks } from "../db.js";
+import { adminAuth } from "./middleware.js";
 
 export default function dashboardRoutes(app: Hono, teams: Map<string, Team>) {
+  app.use("/api/dashboard", adminAuth);
   app.get("/api/dashboard", async (c) => {
     const records = await loadRegistry();
     let totalOnline = 0;

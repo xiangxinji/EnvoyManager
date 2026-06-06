@@ -113,6 +113,8 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+const PUBLIC_PATHS = ["/public-key", "/admin/auth", "/auth", "/auth/verify", "/ai/health"];
+
 async function getPublicKey(): Promise<string> {
   const res = await fetch(`${BASE}/public-key`);
   if (!res.ok) throw new Error("Failed to fetch public key");
@@ -121,7 +123,13 @@ async function getPublicKey(): Promise<string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
+  const token = localStorage.getItem("admin_token");
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
+  if (!isPublic && token && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     if (localStorage.getItem("admin_token")) {
       localStorage.removeItem("admin_token");
@@ -227,21 +235,15 @@ export const api = {
   adminLogout: () =>
     request<{ ok: boolean }>("/admin/logout", {
       method: "POST",
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
   getAdminProfile: () =>
-    request<{ username: string }>("/admin/profile", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    request<{ username: string }>("/admin/profile"),
   updateAdmin: async (username: string, password: string) => {
     const pubKey = await getPublicKey();
     const encrypted = await rsaEncrypt(pubKey, password);
     return request<{ ok: boolean }>("/admin/update", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password: encrypted }),
     });
   },
@@ -261,9 +263,7 @@ export const api = {
       scenes: Record<string, { presetId: string | null; temperature: number; maxTokens: number }>;
       configured: boolean;
       defaultPreset?: { id: string; name: string; provider: string; model: string; isDefault: boolean };
-    }>("/ai/config", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    }>("/ai/config"),
 
   // Preset CRUD
   getPresets: () =>
@@ -277,9 +277,7 @@ export const api = {
         apiKey: string;
         isDefault: boolean;
       }>
-    >("/ai/presets", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    >("/ai/presets"),
   createPreset: (data: {
     name: string;
     provider: string;
@@ -289,10 +287,7 @@ export const api = {
   }) =>
     request<{ id: string; name: string }>("/ai/presets", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }),
   updatePreset: (
@@ -301,132 +296,114 @@ export const api = {
   ) =>
     request<{ id: string; name: string }>(`/ai/presets/${id}`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }),
   deletePreset: (id: string) =>
     request<{ success: boolean }>(`/ai/presets/${id}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
   setDefaultPreset: (id: string) =>
     request<{ success: boolean }>(`/ai/presets/${id}/default`, {
       method: "PUT",
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
   // Scene Configuration
   getScenes: () =>
     request<
       Record<string, { presetId: string | null; presetName: string | null; temperature: number; maxTokens: number }>
-    >("/ai/scenes", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    >("/ai/scenes"),
   updateScenes: (
     scenes: Record<string, { presetId: string | null; temperature: number; maxTokens: number }>,
   ) =>
     request<{ success: boolean }>("/ai/scenes", {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scenes }),
     }),
 
   getAIModels: () =>
-    request<{ id: string; label: string; models: string[] }[]>("/ai/models", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    request<{ id: string; label: string; models: string[] }[]>("/ai/models"),
   checkAIHealth: () =>
     request<{ configured: boolean; provider: string; model: string }>("/ai/health"),
 
   // Cloud resources
   getCloudStats: (team: string) =>
     request<{ totalFiles: number; totalSize: number; totalDirs: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/cloud/stats", {
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   getCloudFiles: (team: string, parentId?: string | null) =>
     request<{ id: string | null; parentId: string | null; name: string; items: Array<{ id: string; name: string; parentId: string | null; type: string; size: number; uploadedBy: string; createdAt: number }> }>(`/cloud/files${parentId ? `?parentId=${encodeURIComponent(parentId)}` : ""}`, {
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   deleteCloudFile: (team: string, id: string) =>
     request<{ ok: boolean }>(`/cloud/files/${encodeURIComponent(id)}?from=admin`, {
       method: "DELETE",
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   createCloudDir: (team: string, name: string, parentId?: string | null) =>
     request<{ ok: boolean; item: { id: string; name: string } }>("/cloud/directories", {
       method: "POST",
-      headers: { "Content-Type": "application/json", team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { "Content-Type": "application/json", team },
       body: JSON.stringify({ name, parentId: parentId || null, createdBy: "admin" }),
     }),
 
   searchCloudFiles: (team: string, query: string) =>
     request<Array<{ id: string; name: string; displayPath: string; type: string; size: number }>>(`/cloud/search?q=${encodeURIComponent(query)}`, {
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   // Brains / Knowledge base
   getBrainsStats: (team: string) =>
     request<{ totalFiles: number; totalSize: number; byUser: Array<{ user: string; fileCount: number; totalSize: number }> }>("/brains/stats", {
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   getBrainsFiles: (team: string, username: string, includeBackups = false) =>
     request<{ files: Array<{ path: string; mtime_ms: number; size: number }> }>(`/brains/files?username=${encodeURIComponent(username)}&includeBackups=${includeBackups}`, {
-      headers: { team, Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { team },
     }),
 
   // Glossary — Global
   getGlobalGlossary: () =>
-    request<GlossaryEntry[]>("/glossary/global", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    request<GlossaryEntry[]>("/glossary/global"),
   createGlobalGlossaryEntry: (term: string, definition: string) =>
     request<GlossaryEntry>("/glossary/global", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ term, definition }),
     }),
   updateGlobalGlossaryEntry: (id: string, term: string, definition: string) =>
     request<GlossaryEntry>(`/glossary/global/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ term, definition }),
     }),
   deleteGlobalGlossaryEntry: (id: string) =>
     request<{ success: boolean }>(`/glossary/global/${id}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 
   // Glossary — Team
   getTeamGlossary: (team: string) =>
-    request<GlossaryEntry[]>(`/glossary/team?team=${encodeURIComponent(team)}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
-    }),
+    request<GlossaryEntry[]>(`/glossary/team?team=${encodeURIComponent(team)}`),
   createTeamGlossaryEntry: (team: string, term: string, definition: string) =>
     request<GlossaryEntry>(`/glossary/team?team=${encodeURIComponent(team)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ term, definition }),
     }),
   updateTeamGlossaryEntry: (team: string, id: string, term: string, definition: string) =>
     request<GlossaryEntry>(`/glossary/team/${id}?team=${encodeURIComponent(team)}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ term, definition }),
     }),
   deleteTeamGlossaryEntry: (team: string, id: string) =>
     request<{ success: boolean }>(`/glossary/team/${id}?team=${encodeURIComponent(team)}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token") || ""}` },
     }),
 };

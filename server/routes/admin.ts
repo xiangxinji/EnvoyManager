@@ -5,6 +5,16 @@ import { decryptWithPrivateKey } from "../crypto.js";
 
 const sessions = new Map<string, { createdAt: number }>();
 
+/** @internal Reset sessions for testing */
+export function __clearSessions() { sessions.clear(); }
+
+/** @internal Seed a session for testing. Returns the token. */
+export function __seedSession(createdAt?: number): string {
+  const token = randomBytes(32).toString("hex");
+  sessions.set(token, { createdAt: createdAt ?? Date.now() });
+  return token;
+}
+
 export default function adminRoutes(app: Hono) {
   app.post("/api/admin/auth", async (c) => {
     const body = await c.req.json<{ username?: string; password?: string }>();

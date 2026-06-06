@@ -1,31 +1,8 @@
-import type { Hono, Context, Next } from "hono";
+import type { Hono } from "hono";
 import type { Team } from "../../../envoy/packages/teams/team.js";
-import { validateClientToken } from "./users.js";
-import { validateSession } from "./admin.js";
+import { clientAuth, dualAuth } from "./middleware.js";
 import { mkdir, writeFile, readFile, rename, readdir, stat } from "node:fs/promises";
 import { join, dirname, resolve, sep } from "node:path";
-
-async function clientAuth(c: Context, next: Next) {
-  const token = c.req.header("X-Envoy-Token") || c.req.query("token");
-  if (!token || !validateClientToken(token)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
-}
-
-async function dualAuth(c: Context, next: Next) {
-  const adminToken = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (adminToken && validateSession(adminToken)) {
-    await next();
-    return;
-  }
-  const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
-  if (clientToken && validateClientToken(clientToken)) {
-    await next();
-    return;
-  }
-  return c.json({ error: "unauthorized" }, 401);
-}
 
 const META_FILE = "_meta.json";
 

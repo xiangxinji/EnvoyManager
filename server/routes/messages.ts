@@ -5,12 +5,19 @@ import { join, basename } from "node:path";
 import { getResourcesDir, getTaskDir } from "../team-registry.js";
 import { insertMessage, queryMessages, queryConversations, deleteMessage, getMessageById, insertSticker, listStickersByUser, getStickerById, deleteSticker, collectSticker } from "../db.js";
 import { createHash } from "node:crypto";
+import { clientAuth } from "./middleware.js";
 
 import { randomUUID } from "node:crypto";
 
 const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024; // 50MB
 
 export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
+  // ─── Auth middleware for all message/task/sticker routes ───
+  app.use("/api/messages/*", clientAuth);
+  app.use("/api/tasks/*", clientAuth);
+  app.use("/api/stickers", clientAuth);
+  app.use("/api/stickers/*", clientAuth);
+
   // Upload message attachment
   app.post("/api/messages/attachments", async (c) => {
     const teamName = c.req.header("team");

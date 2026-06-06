@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { AIConfig, SceneType } from "../../../../shared/types/ai.js";
 import type { ResolvedScene } from "../../settings.js";
-import { PROVIDERS } from "./constants.js";
 import { handleChatStream, handleChatGenerate } from "./chat.js";
 import { handleTaskGenerate } from "./task.js";
 import { handleAnalyze } from "./analyze.js";
@@ -52,12 +51,6 @@ export function createAIRoutes(options: AIRouterOptions) {
     } catch {
       return c.json({ error: "AI not configured" }, 503);
     }
-  });
-
-  // ─── Models ───
-
-  router.get("/models", (c) => {
-    return c.json(PROVIDERS);
   });
 
   return router;

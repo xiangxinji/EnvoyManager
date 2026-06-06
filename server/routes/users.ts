@@ -13,9 +13,20 @@ import {
 } from "../user-registry.js";
 import { getPublicKey, decryptWithPrivateKey } from "../crypto.js";
 import { AVATARS_DIR } from "../manager-db.js";
+import { adminAuth } from "./middleware.js";
 
 const clientSessions = new Map<string, { userId: string; role: string; createdAt: number }>();
 const SESSION_TTL = 24 * 60 * 60 * 1000;
+
+/** @internal Reset client sessions for testing */
+export function __clearClientSessions() { clientSessions.clear(); }
+
+/** @internal Seed a client session for testing. Returns the token. */
+export function __seedClientSession(userId: string, role: string, createdAt?: number): string {
+  const token = randomBytes(32).toString("hex");
+  clientSessions.set(token, { userId, role, createdAt: createdAt ?? Date.now() });
+  return token;
+}
 
 export function validateClientToken(token: string): boolean {
   const session = clientSessions.get(token);
@@ -28,6 +39,10 @@ export function validateClientToken(token: string): boolean {
 }
 
 export default function userRoutes(app: Hono) {
+  // ─── Auth middleware for user CRUD (auth endpoints remain public) ───
+  app.use("/api/users", adminAuth);
+  app.use("/api/users/*", adminAuth);
+
   app.get("/api/public-key", (c) => {
     return c.json({ key: getPublicKey() });
   });

@@ -21,7 +21,13 @@ cd web && npm run dev
 cd web && npm run build
 ```
 
-项目未配置测试或 lint 命令，没有测试。
+```bash
+# 测试
+cd server && npm test
+
+# 前端构建
+cd web && npm run build
+```
 
 可通过 `MANAGER_PORT` 环境变量覆盖后端端口。首次启动默认管理员账号：`admin` / `admin123`。
 
@@ -57,6 +63,50 @@ cd web && npm run build
 - `crypto.ts` — RSA-2048 密钥对存储在 `~/.envoy/keys/`，用于密码加密
 
 **认证流程：** 两套独立的认证系统 — 管理员认证（`Authorization` 头的 Bearer token）和客户端认证（`X-Envoy-Token` 头，携带团队上下文）。管理员令牌为 UUID，存储在内存中。
+
+### 授权规范（所有后端接口必须遵守）
+
+**共享中间件文件**: `server/routes/middleware.ts`，导出 `adminAuth`、`clientAuth`、`dualAuth` 三个中间件。禁止在路由文件中重复定义这些中间件，必须从 `middleware.ts` 导入。
+
+#### 三种授权策略
+
+| 中间件 | Header | 适用场景 |
+|--------|--------|----------|
+| `adminAuth` | `Authorization: Bearer <token>` | 管理后台接口（团队 CRUD、用户管理、AI 配置、Dashboard） |
+| `clientAuth` | `X-Envoy-Token` 或 `?token=` | Agent 客户端接口（消息收发、任务提交、AI 推理、贴纸） |
+| `dualAuth` | 上述任一 | 同时面向管理后台和客户端的接口（云盘、知识库） |
+
+#### 公开端点（无需授权）
+
+仅有以下端点允许无认证访问，新增端点默认需要授权：
+
+- `POST /api/admin/auth` — 管理员登录
+- `POST /api/auth` — 客户端登录
+- `POST /api/auth/verify` — 密码验证
+- `GET /api/public-key` — RSA 公钥
+- `GET /api/ai/health` — AI 健康检查
+
+#### 新增接口的授权检查流程
+
+实现任何新接口之前，必须：
+
+1. **确定授权策略**：该接口是管理后台用（`adminAuth`）、Agent 客户端用（`clientAuth`）、还是两者都用（`dualAuth`）？
+2. **添加中间件**：通过 `app.use("/api/xxx/*", adminAuth)` 或在路由注册时内联 `app.post("/path", clientAuth, handler)`
+3. **编写授权测试**：无 token → 401、无效 token → 401、有效 token → 非 401
+
+#### 单元测试规范
+
+所有后端新增功能或修改已有功能时，必须编写单元测试：
+
+- 测试必须覆盖：授权拦截（401）、核心业务逻辑（CRUD、状态流转、错误处理）
+- 使用内存数据库（`:memory:` SQLite），通过 `__setDb()` / `__setTeamDb()` 注入
+- 使用 Hono `app.request()` 进行 HTTP 处理器测试，无需启动服务器
+- Session 状态通过 `__clearSessions()` / `__clearClientSessions()` 重置
+- 运行命令：`cd server && npm test`
+
+#### 前端 API 客户端
+
+`web/src/api.ts` 的 `request()` 函数自动从 `localStorage` 读取 `admin_token` 并附加 `Authorization` header。公开端点通过 `PUBLIC_PATHS` 白名单排除。新增非公开接口时无需手动添加 Authorization header。
 
 ### 前端（`web/`）
 
