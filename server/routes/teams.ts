@@ -13,7 +13,7 @@ import {
   type TeamRecord,
   type TeamMeta,
 } from "../team-registry.js";
-import { loadUsers } from "../user-registry.js";
+import { loadUsers, getUser } from "../user-registry.js";
 import { teamHost } from "../config.js";
 import { adminAuth } from "./middleware.js";
 
@@ -175,6 +175,9 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     const username = c.req.param("username");
     const meta = await loadMeta(teamName);
     if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!getUser(username)) return c.json({ error: "user not found" }, 400);
+    if (username === meta.leader)
+      return c.json({ error: "cannot add leader as member" }, 409);
     if (meta.members.some((m) => m.username === username))
       return c.json({ error: "member already in team" }, 409);
 

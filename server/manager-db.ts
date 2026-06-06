@@ -63,6 +63,25 @@ CREATE TABLE IF NOT EXISTS glossary (
   updated_at INTEGER NOT NULL
 )`;
 
+const CREATE_AI_USAGE = `
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  team              TEXT NOT NULL,
+  username          TEXT NOT NULL,
+  scene             TEXT NOT NULL,
+  preset_id         TEXT NOT NULL,
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at        INTEGER NOT NULL
+)`;
+
+const AI_USAGE_INDEXES = [
+  "CREATE INDEX IF NOT EXISTS idx_ai_usage_team ON ai_usage(team)",
+  "CREATE INDEX IF NOT EXISTS idx_ai_usage_username ON ai_usage(username)",
+  "CREATE INDEX IF NOT EXISTS idx_ai_usage_scene ON ai_usage(scene)",
+  "CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at)",
+];
+
 const GLOSSARY_INDEXES = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)",
 ];
@@ -78,7 +97,8 @@ export function initManagerDB(): void {
   db.exec(CREATE_AI_SCENES);
   db.exec(CREATE_USERS);
   db.exec(CREATE_GLOSSARY);
-  for (const sql of GLOSSARY_INDEXES) db.exec(sql);
+  db.exec(CREATE_AI_USAGE);
+  for (const sql of [...GLOSSARY_INDEXES, ...AI_USAGE_INDEXES]) db.exec(sql);
 
   // Migration: add nickname and avatar_url columns if missing
   const userCols = getDb().prepare("PRAGMA table_info(users)").all() as { name: string }[];
@@ -453,4 +473,83 @@ export function deleteGlossaryEntry(id: string): void {
   const existing = getGlossaryEntry(id);
   if (!existing) throw new Error("词汇条目不存在");
   getDb().prepare("DELETE FROM glossary WHERE id = ?").run(id);
+}
+
+// ─── AI Usage Tracking ──────────────────────────────────────────
+
+export interface UsageRecord {
+  team: string;
+  username: string;
+  scene: string;
+  presetId: string;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export function recordUsage(record: UsageRecord): void {
+  try {
+    getDb().prepare(
+      "INSERT INTO ai_usage (team, username, scene, preset_id, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(record.team, record.username, record.scene, record.presetId, record.promptTokens, record.completionTokens, Date.now());
+  } catch (e) {
+    console.error("[ai-usage] Failed to record usage:", e);
+  }
+}
+
+export interface UsageQueryFilter {
+  from?: number;
+  to?: number;
+  team?: string;
+  username?: string;
+  scene?: string;
+  group?: "team" | "username" | "scene" | "day";
+}
+
+export interface UsageResult {
+  total: { promptTokens: number; completionTokens: number; calls: number };
+  breakdown: Array<{
+    key: string;
+    promptTokens: number;
+    completionTokens: number;
+    calls: number;
+  }>;
+}
+
+export function queryUsage(filter: UsageQueryFilter = {}): UsageResult {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filter.from) { conditions.push("created_at >= ?"); params.push(filter.from); }
+  if (filter.to) { conditions.push("created_at <= ?"); params.push(filter.to); }
+  if (filter.team) { conditions.push("team = ?"); params.push(filter.team); }
+  if (filter.username) { conditions.push("username = ?"); params.push(filter.username); }
+  if (filter.scene) { conditions.push("scene = ?"); params.push(filter.scene); }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // Total
+  const totalRow = getDb().prepare(
+    `SELECT COALESCE(SUM(prompt_tokens), 0) as pt, COALESCE(SUM(completion_tokens), 0) as ct, COUNT(*) as calls FROM ai_usage ${where}`
+  ).get(...params) as { pt: number; ct: number; calls: number };
+
+  const total = { promptTokens: totalRow.pt, completionTokens: totalRow.ct, calls: totalRow.calls };
+
+  // Breakdown
+  let breakdown: UsageResult["breakdown"] = [];
+  if (filter.group) {
+    let groupExpr: string;
+    switch (filter.group) {
+      case "day": groupExpr = "date(created_at / 1000, 'unixepoch')"; break;
+      case "team": groupExpr = "team"; break;
+      case "username": groupExpr = "username"; break;
+      case "scene": groupExpr = "scene"; break;
+    }
+    const rows = getDb().prepare(
+      `SELECT ${groupExpr} as key, COALESCE(SUM(prompt_tokens), 0) as pt, COALESCE(SUM(completion_tokens), 0) as ct, COUNT(*) as calls FROM ai_usage ${where} GROUP BY ${groupExpr} ORDER BY ${filter.group === "day" ? "key ASC" : "ct DESC"}`
+    ).all(...params) as Array<{ key: string; pt: number; ct: number; calls: number }>;
+
+    breakdown = rows.map(r => ({ key: r.key, promptTokens: r.pt, completionTokens: r.ct, calls: r.calls }));
+  }
+
+  return { total, breakdown };
 }

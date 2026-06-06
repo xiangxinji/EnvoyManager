@@ -1,21 +1,33 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { api, type DashboardData } from "../api";
+import { api, type DashboardData, type AIUsageResult } from "../api";
 
 const data = ref<DashboardData | null>(null);
+const usage = ref<AIUsageResult | null>(null);
 const loading = ref(true);
 const error = ref("");
 let timer: ReturnType<typeof setInterval>;
 
 async function refresh() {
   try {
-    data.value = await api.getDashboard();
+    const [dashboardData, usageData] = await Promise.all([
+      api.getDashboard(),
+      api.getAIUsage({ from: new Date(new Date().setHours(0, 0, 0, 0)).getTime() }).catch(() => null),
+    ]);
+    data.value = dashboardData;
+    usage.value = usageData;
     error.value = "";
   } catch (e: any) {
     error.value = e.message;
   } finally {
     loading.value = false;
   }
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return String(n);
 }
 
 onMounted(() => {
@@ -59,6 +71,11 @@ function formatTime(ts: number): string {
         <div class="stat-card">
           <div class="stat-value">{{ data.totalTasks }}</div>
           <div class="stat-label">总任务</div>
+        </div>
+        <div class="stat-card" v-if="usage">
+          <div class="stat-value">{{ formatTokens(usage.total.promptTokens + usage.total.completionTokens) }}</div>
+          <div class="stat-label">今日 Tokens</div>
+          <div class="stat-sub">{{ usage.total.calls }} 次调用</div>
         </div>
       </div>
 
@@ -156,7 +173,7 @@ function formatTime(ts: number): string {
 
 .stat-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-lg);
   margin-bottom: var(--space-2xl);
 }
@@ -179,6 +196,13 @@ function formatTime(ts: number): string {
   font-size: 0.85em;
   color: var(--text-muted);
   margin-top: var(--space-xs);
+}
+
+.stat-sub {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  margin-top: 2px;
+  opacity: 0.7;
 }
 
 .section-title {

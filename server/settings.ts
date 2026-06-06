@@ -85,6 +85,7 @@ export interface ResolvedScene {
   model: LanguageModelV1;
   temperature: number;
   maxTokens: number;
+  presetId: string;
 }
 
 export function resolveForScene(sceneType: SceneType): ResolvedScene {
@@ -113,5 +114,6 @@ export function resolveForScene(sceneType: SceneType): ResolvedScene {
     model,
     temperature: sceneConfig?.temperature ?? DEFAULT_TEMPERATURE,
     maxTokens: sceneConfig?.maxTokens ?? DEFAULT_MAX_TOKENS,
+    presetId: preset.id,
   };
 }

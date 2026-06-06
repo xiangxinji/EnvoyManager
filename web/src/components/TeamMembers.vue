@@ -1,45 +1,54 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
-import { api, type TeamMember, type ServerClientInfo } from "../api";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { api, type TeamMember, type ServerClientInfo, type UserInfo } from "../api";
 
 const props = defineProps<{ team: string }>();
 
 const leader = ref<{ username: string; nickname: string | null; avatar_url: string | null } | null>(null);
 const members = ref<TeamMember[]>([]);
+const allUsers = ref<UserInfo[]>([]);
 const onlineClients = ref<ServerClientInfo[]>([]);
 let timer: ReturnType<typeof setInterval>;
 
 async function load() {
   try {
-    const [cfg, clients] = await Promise.all([
+    const [cfg, clients, users] = await Promise.all([
       api.getConfiguredMembers(props.team),
       api.getMembers(props.team),
+      api.getUsers(),
     ]);
     leader.value = cfg.leader;
     members.value = cfg.members;
+    allUsers.value = users;
     onlineClients.value = clients;
   } catch {}
 }
+
+const availableUsers = computed(() => {
+  const existing = new Set(members.value.map(m => m.username));
+  if (leader.value) existing.add(leader.value.username);
+  return allUsers.value.filter(u => !existing.has(u.username));
+});
 
 function isOnline(username: string): boolean {
   return onlineClients.value.some(c => c.id === username && c.status === "online");
 }
 
 const showAddModal = ref(false);
-const addUsername = ref("");
+const addSelectedUser = ref("");
 const addResponsibilities = ref("");
 const addCapabilities = ref("");
 const adding = ref(false);
 const addError = ref("");
 
 async function handleAdd() {
-  if (!addUsername.value.trim()) return;
+  if (!addSelectedUser.value) return;
   adding.value = true;
   addError.value = "";
   try {
-    await api.addTeamMember(props.team, addUsername.value.trim(), addResponsibilities.value, addCapabilities.value);
+    await api.addTeamMember(props.team, addSelectedUser.value, addResponsibilities.value, addCapabilities.value);
     showAddModal.value = false;
-    addUsername.value = "";
+    addSelectedUser.value = "";
     addResponsibilities.value = "";
     addCapabilities.value = "";
     await load();
@@ -72,9 +81,13 @@ function displayName(m: { username: string; nickname?: string | null }): string 
   return m.nickname || m.username;
 }
 
+function userLabel(u: UserInfo): string {
+  return u.nickname ? `${u.nickname} (${u.username})` : u.username;
+}
+
 function closeAddModal() {
   showAddModal.value = false;
-  addUsername.value = "";
+  addSelectedUser.value = "";
   addResponsibilities.value = "";
   addCapabilities.value = "";
   addError.value = "";
@@ -142,7 +155,11 @@ onUnmounted(() => clearInterval(timer));
           <div v-if="addError" class="modal-error">{{ addError }}</div>
           <div class="form-group">
             <label>用户名</label>
-            <input v-model="addUsername" placeholder="输入用户名" @keydown.enter="handleAdd" />
+            <select v-model="addSelectedUser">
+              <option value="" disabled>选择用户</option>
+              <option v-for="u in availableUsers" :key="u.username" :value="u.username">{{ userLabel(u) }}</option>
+            </select>
+            <p v-if="availableUsers.length === 0" class="hint">暂无可添加的用户</p>
           </div>
           <div class="form-group">
             <label>职责</label>
@@ -154,7 +171,7 @@ onUnmounted(() => clearInterval(timer));
           </div>
           <div class="modal-actions">
             <button class="cancel-btn" @click="closeAddModal">取消</button>
-            <button class="confirm-btn" :disabled="adding || !addUsername.trim()" @click="handleAdd">
+            <button class="confirm-btn" :disabled="adding || !addSelectedUser" @click="handleAdd">
               {{ adding ? "添加中..." : "添加" }}
             </button>
           </div>
@@ -394,7 +411,8 @@ onUnmounted(() => clearInterval(timer));
   margin-bottom: 4px;
 }
 
-.form-group input {
+.form-group input,
+.form-group select {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -406,7 +424,14 @@ onUnmounted(() => clearInterval(timer));
   transition: border-color 0.15s;
 }
 
-.form-group input:focus { border-color: var(--accent); }
+.form-group input:focus,
+.form-group select:focus { border-color: var(--accent); }
+
+.hint {
+  margin-top: 4px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
 
 .modal-actions {
   display: flex;

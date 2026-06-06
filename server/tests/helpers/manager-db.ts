@@ -45,6 +45,17 @@ const SCHEMA = {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
+  aiUsage: `
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      team              TEXT NOT NULL,
+      username          TEXT NOT NULL,
+      scene             TEXT NOT NULL,
+      preset_id         TEXT NOT NULL,
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at        INTEGER NOT NULL
+    )`,
 };
 
 export function createManagerDB(): Database.Database {
@@ -54,7 +65,12 @@ export function createManagerDB(): Database.Database {
   db.exec(SCHEMA.aiScenes);
   db.exec(SCHEMA.users);
   db.exec(SCHEMA.glossary);
+  db.exec(SCHEMA.aiUsage);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ai_usage_team ON ai_usage(team)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ai_usage_username ON ai_usage(username)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ai_usage_scene ON ai_usage(scene)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at)");
   return db;
 }
 

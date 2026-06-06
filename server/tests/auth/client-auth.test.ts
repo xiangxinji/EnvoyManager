@@ -296,3 +296,56 @@ describe("Middleware: dualAuth", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ─── clientAuth identity passthrough (c.set) ───
+
+describe("clientAuth identity passthrough", () => {
+  function createApp() {
+    const app = new Hono();
+    app.use("*", cors());
+
+    // clientAuth-protected route that returns the set values
+    app.get("/api/test/context", async (c, next) => {
+      // Inline clientAuth + capture context
+      const token = c.req.header("X-Envoy-Token") || c.req.query("token");
+      if (!token || !validateClientToken(token)) {
+        return c.json({ error: "unauthorized" }, 401);
+      }
+      const { lookupClientSession } = await import("../../routes/users.js");
+      const session = lookupClientSession(token!);
+      if (session) {
+        c.set("userId", session.userId);
+        c.set("role", session.role);
+      }
+      await next();
+      // This won't run if next() throws, but the handler below runs instead
+    }, (c) => {
+      return c.json({
+        userId: c.get("userId") ?? null,
+        role: c.get("role") ?? null,
+      });
+    });
+
+    return app;
+  }
+
+  it("sets userId and role for valid token", async () => {
+    const token = __seedClientSession("bob", "leader");
+    const app = createApp();
+    const res = await app.request("/api/test/context", {
+      headers: { "X-Envoy-Token": token },
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.userId).toBe("bob");
+    expect(data.role).toBe("leader");
+  });
+
+  it("does not set userId for invalid token", async () => {
+    const app = createApp();
+    const res = await app.request("/api/test/context", {
+      headers: { "X-Envoy-Token": "invalid" },
+    });
+    expect(res.status).toBe(401);
+  });
+});

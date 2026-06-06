@@ -38,6 +38,17 @@ export function validateClientToken(token: string): boolean {
   return true;
 }
 
+/** Look up a client session by token. Returns userId/role or null if invalid/expired. */
+export function lookupClientSession(token: string): { userId: string; role: string } | null {
+  const session = clientSessions.get(token);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    clientSessions.delete(token);
+    return null;
+  }
+  return { userId: session.userId, role: session.role };
+}
+
 export default function userRoutes(app: Hono) {
   // ─── Auth middleware for user CRUD (auth endpoints remain public) ───
   app.use("/api/users", adminAuth);

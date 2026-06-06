@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
 import { validateSession } from "./admin.js";
-import { validateClientToken } from "./users.js";
+import { validateClientToken, lookupClientSession } from "./users.js";
 
 /** Require a valid admin Bearer token (Authorization header) */
 export async function adminAuth(c: Context, next: Next) {
@@ -11,11 +11,17 @@ export async function adminAuth(c: Context, next: Next) {
   await next();
 }
 
-/** Require a valid client token (X-Envoy-Token header or ?token= query param) */
+/** Require a valid client token (X-Envoy-Token header or ?token= query param).
+ *  Sets c.set("userId") and c.set("role") from the session. */
 export async function clientAuth(c: Context, next: Next) {
   const token = c.req.header("X-Envoy-Token") || c.req.query("token");
   if (!token || !validateClientToken(token)) {
     return c.json({ error: "unauthorized" }, 401);
+  }
+  const session = lookupClientSession(token);
+  if (session) {
+    c.set("userId", session.userId);
+    c.set("role", session.role);
   }
   await next();
 }
@@ -29,6 +35,11 @@ export async function dualAuth(c: Context, next: Next) {
   }
   const clientToken = c.req.header("X-Envoy-Token") || c.req.query("token");
   if (clientToken && validateClientToken(clientToken)) {
+    const session = lookupClientSession(clientToken);
+    if (session) {
+      c.set("userId", session.userId);
+      c.set("role", session.role);
+    }
     await next();
     return;
   }

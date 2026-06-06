@@ -94,6 +94,16 @@ export interface GlossaryEntry {
   updated_at: number;
 }
 
+export interface AIUsageResult {
+  total: { promptTokens: number; completionTokens: number; calls: number };
+  breakdown: Array<{
+    key: string;
+    promptTokens: number;
+    completionTokens: number;
+    calls: number;
+  }>;
+}
+
 async function rsaEncrypt(publicKeyPem: string, plaintext: string): Promise<string> {
   if (!crypto.subtle) {
     throw new Error("RSA 加密需要安全上下文，请通过 http://localhost:5180 访问");
@@ -264,6 +274,19 @@ export const api = {
       configured: boolean;
       defaultPreset?: { id: string; name: string; provider: string; model: string; isDefault: boolean };
     }>("/ai/config"),
+
+  // AI Usage
+  getAIUsage: (params?: { from?: number; to?: number; team?: string; username?: string; scene?: string; group?: "team" | "username" | "scene" | "day" }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set("from", String(params.from));
+    if (params?.to) qs.set("to", String(params.to));
+    if (params?.team) qs.set("team", params.team);
+    if (params?.username) qs.set("username", params.username);
+    if (params?.scene) qs.set("scene", params.scene);
+    if (params?.group) qs.set("group", params.group);
+    const query = qs.toString();
+    return request<AIUsageResult>(`/ai/usage${query ? `?${query}` : ""}`);
+  },
 
   // Preset CRUD
   getPresets: () =>

@@ -23,6 +23,7 @@ import {
 } from "../db.js";
 import { resolveForScene } from "../settings.js";
 import { handleCloudOrganize } from "../services/ai/cloudOrganize.js";
+import { recordUsage } from "../manager-db.js";
 
 function resolveFilesystemPath(teamName: string, relativePath: string): string {
   const cloudRoot = resolve(getCloudDir(teamName));
@@ -418,6 +419,15 @@ export default function cloudRoutes(app: Hono, teams: Map<string, Team>) {
       });
 
       directoryPath = result.object.directoryPath;
+
+      recordUsage({
+        team: teamName,
+        username: (c.get("userId" as never) as string) ?? "",
+        scene: "cloud_organize",
+        presetId: resolved.presetId,
+        promptTokens: result.usage?.promptTokens ?? 0,
+        completionTokens: result.usage?.completionTokens ?? 0,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[smart-upload] AI organize failed:", msg);

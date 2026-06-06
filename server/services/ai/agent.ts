@@ -2,6 +2,7 @@ import { generateText, tool, jsonSchema } from "ai";
 import type { CoreMessage } from "ai";
 import type { Context } from "hono";
 import type { ResolvedScene } from "../../settings.js";
+import { recordUsage } from "../../manager-db.js";
 import { AGENT_SYSTEM_PROMPT } from "./prompts/agent.js";
 
 interface AgentReasonRequest {
@@ -101,6 +102,15 @@ export async function handleAgentReason(c: Context, resolved: ResolvedScene) {
     name: tc.toolName,
     args: tc.args,
   }));
+
+  recordUsage({
+    team: c.req.header("team") ?? "",
+    username: (c.get("userId") as string) ?? "",
+    scene: "agent",
+    presetId: resolved.presetId,
+    promptTokens: result.usage?.promptTokens ?? 0,
+    completionTokens: result.usage?.completionTokens ?? 0,
+  });
 
   return c.json({
     toolCalls: toolCalls?.length ? toolCalls : undefined,

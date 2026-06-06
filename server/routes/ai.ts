@@ -11,6 +11,7 @@ import {
   getScenes,
   updateScenes,
 } from "../settings.js";
+import { queryUsage, type UsageQueryFilter } from "../manager-db.js";
 import { createAIRoutes } from "../services/ai/index.js";
 import { handleAgentReason } from "../services/ai/agent.js";
 import { handleTaskDispatch } from "../services/ai/dispatch.js";
@@ -235,5 +236,19 @@ export default function aiRoutes(app: Hono) {
   // Models list
   app.get("/api/ai/models", adminAuth, (c) => {
     return c.json(PROVIDERS);
+  });
+
+  // ─── AI Usage (adminAuth) ───
+
+  app.get("/api/ai/usage", adminAuth, (c) => {
+    const from = c.req.query("from") ? Number(c.req.query("from")) : undefined;
+    const to = c.req.query("to") ? Number(c.req.query("to")) : undefined;
+    const team = c.req.query("team") || undefined;
+    const username = c.req.query("username") || undefined;
+    const scene = c.req.query("scene") || undefined;
+    const group = c.req.query("group") as UsageQueryFilter["group"] || undefined;
+
+    const result = queryUsage({ from, to, team, username, scene, group });
+    return c.json(result);
   });
 }

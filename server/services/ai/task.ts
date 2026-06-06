@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Context } from "hono";
 import type { TaskGenerateRequest, TaskPlan } from "../../../../shared/types/ai.js";
 import type { ResolvedScene } from "../../settings.js";
+import { recordUsage } from "../../manager-db.js";
 import { TASK_SYSTEM_PROMPT, buildTaskPrompt } from "./prompts/task.js";
 
 const taskPlanSchema = z.object({
@@ -36,6 +37,15 @@ export async function handleTaskGenerate(c: Context, resolved: ResolvedScene) {
     schemaName: "TaskPlan",
     temperature: resolved.temperature,
     maxTokens: resolved.maxTokens,
+  });
+
+  recordUsage({
+    team: c.req.header("team") ?? "",
+    username: (c.get("userId") as string) ?? "",
+    scene: "task",
+    presetId: resolved.presetId,
+    promptTokens: result.usage?.promptTokens ?? 0,
+    completionTokens: result.usage?.completionTokens ?? 0,
   });
 
   return c.json(result.object as TaskPlan);

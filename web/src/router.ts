@@ -8,6 +8,7 @@ import Login from "./views/Login.vue";
 import Settings from "./views/Settings.vue";
 import Models from "./views/Models.vue";
 import Glossary from "./views/Glossary.vue";
+import Analytics from "./views/Analytics.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +21,7 @@ const router = createRouter({
     { path: "/users", component: Users },
     { path: "/models", component: Models },
     { path: "/glossary", component: Glossary },
+    { path: "/analytics", component: Analytics },
     { path: "/settings", component: Settings },
   ],
 });

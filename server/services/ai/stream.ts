@@ -1,7 +1,16 @@
 import { streamText } from "ai";
+import { recordUsage } from "../../manager-db.js";
+
+interface UsageContext {
+  team: string;
+  username: string;
+  scene: string;
+  presetId: string;
+}
 
 export function toStandardSSE(
   result: ReturnType<typeof streamText>,
+  usageContext?: UsageContext,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const encode = (event: string, data: object) =>
@@ -43,6 +52,18 @@ export function toStandardSSE(
               }),
             );
           }
+        }
+
+        // Record usage before sending done event
+        if (usageContext && usage) {
+          recordUsage({
+            team: usageContext.team,
+            username: usageContext.username,
+            scene: usageContext.scene,
+            presetId: usageContext.presetId,
+            promptTokens: usage.promptTokens ?? 0,
+            completionTokens: usage.completionTokens ?? 0,
+          });
         }
 
         controller.enqueue(

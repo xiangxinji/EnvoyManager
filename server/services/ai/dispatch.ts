@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import type { Context } from "hono";
 import type { ResolvedScene } from "../../settings.js";
+import { recordUsage } from "../../manager-db.js";
 import { DISPATCH_SYSTEM_PROMPT } from "./prompts/dispatch.js";
 
 interface DispatchRequest {
@@ -45,6 +46,15 @@ export async function handleTaskDispatch(c: Context, resolved: ResolvedScene) {
     schemaName: "TaskDispatch",
     temperature: resolved.temperature,
     maxTokens: resolved.maxTokens,
+  });
+
+  recordUsage({
+    team: c.req.header("team") ?? "",
+    username: (c.get("userId") as string) ?? "",
+    scene: "dispatch",
+    presetId: resolved.presetId,
+    promptTokens: result.usage?.promptTokens ?? 0,
+    completionTokens: result.usage?.completionTokens ?? 0,
   });
 
   return c.json(result.object);

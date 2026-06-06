@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Context } from "hono";
 import type { AnalyzeRequest, AnalysisResult } from "../../../../shared/types/ai.js";
 import type { ResolvedScene } from "../../settings.js";
+import { recordUsage } from "../../manager-db.js";
 import { ANALYZE_SYSTEM_PROMPT, buildAnalyzePrompt } from "./prompts/analyze.js";
 
 const analysisSchema = z.object({
@@ -31,6 +32,15 @@ export async function handleAnalyze(c: Context, resolved: ResolvedScene) {
     schemaName: "AnalysisResult",
     temperature: resolved.temperature,
     maxTokens: resolved.maxTokens,
+  });
+
+  recordUsage({
+    team: c.req.header("team") ?? "",
+    username: (c.get("userId") as string) ?? "",
+    scene: "analyze",
+    presetId: resolved.presetId,
+    promptTokens: result.usage?.promptTokens ?? 0,
+    completionTokens: result.usage?.completionTokens ?? 0,
   });
 
   return c.json(result.object as AnalysisResult);

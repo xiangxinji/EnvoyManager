@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import type { Context } from "hono";
 import type { ResolvedScene } from "../../settings.js";
+import { recordUsage } from "../../manager-db.js";
 import { CLOUD_ORGANIZE_SYSTEM_PROMPT } from "./prompts/cloudOrganize.js";
 
 interface CloudOrganizeRequest {

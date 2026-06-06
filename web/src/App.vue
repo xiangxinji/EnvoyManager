@@ -13,6 +13,7 @@ const navItems = [
   { path: "/teams", label: "团队" },
   { path: "/users", label: "用户" },
   { path: "/models", label: "模型" },
+  { path: "/analytics", label: "AI 用量" },
   { path: "/glossary", label: "词汇表" },
   { path: "/settings", label: "设置" },
 ];
