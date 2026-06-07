@@ -9,6 +9,7 @@ import Settings from "./views/Settings.vue";
 import Models from "./views/Models.vue";
 import Glossary from "./views/Glossary.vue";
 import Analytics from "./views/Analytics.vue";
+import { getAdminToken, verifyAdminSession } from "./api";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -26,9 +27,10 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (to.meta.public) return true;
-  if (!localStorage.getItem("admin_token")) return "/login";
+  if (!getAdminToken()) return "/login";
+  if (!(await verifyAdminSession())) return "/login";
   return true;
 });
 

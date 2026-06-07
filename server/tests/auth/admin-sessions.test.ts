@@ -1,8 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { validateSession, __clearSessions, __seedSession } from "../../routes/admin.js";
 
 beforeEach(() => {
+  vi.useRealTimers();
   __clearSessions();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("Admin session: validateSession", () => {
@@ -22,6 +27,17 @@ describe("Admin session: validateSession", () => {
 
   it("returns true for session just under TTL (<24h)", () => {
     const token = __seedSession(Date.now() - 23 * 60 * 60 * 1000);
+    expect(validateSession(token)).toBe(true);
+  });
+
+  it("refreshes a valid session so active admins are not logged out mid-use", () => {
+    const start = new Date("2026-06-06T00:00:00.000Z");
+    vi.setSystemTime(start);
+    const token = __seedSession(Date.now() - 23 * 60 * 60 * 1000);
+
+    expect(validateSession(token)).toBe(true);
+
+    vi.setSystemTime(new Date(start.getTime() + 2 * 60 * 60 * 1000));
     expect(validateSession(token)).toBe(true);
   });
 

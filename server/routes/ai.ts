@@ -66,6 +66,16 @@ export default function aiRoutes(app: Hono) {
     }
   });
 
+  // Auto-reply with tool calling (reuses agent reason handler with auto-reply scene model)
+  app.post("/api/ai/auto-reply/reason", clientAuth, async (c) => {
+    try {
+      const resolved = resolveForScene("auto-reply" as SceneType);
+      return handleAgentReason(c, resolved);
+    } catch {
+      return c.json({ error: "AI not configured" }, 503);
+    }
+  });
+
   // Task dispatch
   app.post("/api/ai/task/dispatch", clientAuth, async (c) => {
     try {

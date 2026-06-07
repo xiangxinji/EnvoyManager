@@ -125,6 +125,14 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 
 const PUBLIC_PATHS = ["/public-key", "/admin/auth", "/auth", "/auth/verify", "/ai/health"];
 
+export function getAdminToken(): string | null {
+  return localStorage.getItem("admin_token");
+}
+
+export function clearAdminSession(): void {
+  localStorage.removeItem("admin_token");
+}
+
 async function getPublicKey(): Promise<string> {
   const res = await fetch(`${BASE}/public-key`);
   if (!res.ok) throw new Error("Failed to fetch public key");
@@ -132,17 +140,31 @@ async function getPublicKey(): Promise<string> {
   return data.key as string;
 }
 
+export async function verifyAdminSession(): Promise<boolean> {
+  const token = getAdminToken();
+  if (!token) return false;
+
+  const res = await fetch(`${BASE}/admin/profile`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) {
+    clearAdminSession();
+    return false;
+  }
+  return res.ok;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
-  const token = localStorage.getItem("admin_token");
+  const token = getAdminToken();
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
   if (!isPublic && token && !headers["Authorization"]) {
     headers["Authorization"] = `Bearer ${token}`;
   }
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
-    if (localStorage.getItem("admin_token")) {
-      localStorage.removeItem("admin_token");
+    if (getAdminToken()) {
+      clearAdminSession();
       window.location.href = "/login";
     }
     throw new Error("unauthorized");

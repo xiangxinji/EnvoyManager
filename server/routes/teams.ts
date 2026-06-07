@@ -15,7 +15,7 @@ import {
 } from "../team-registry.js";
 import { loadUsers, getUser } from "../user-registry.js";
 import { teamHost } from "../config.js";
-import { adminAuth } from "./middleware.js";
+import { adminAuth, dualAuth } from "./middleware.js";
 
 export function teamStats(team: Team) {
   const server = team.innerServer;
@@ -35,16 +35,20 @@ export function teamStats(team: Team) {
   };
 }
 
-export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCreated?: (name: string, team: Team) => void) {
-  app.use("/api/teams/*", adminAuth);
+function canAccessTeam(c: any, meta: TeamMeta): boolean {
+  if (c.get("authType") !== "client") return true;
+  const username = c.get("userId");
+  return typeof username === "string" && (meta.leader === username || meta.members.some((m) => m.username === username));
+}
 
-  app.post("/api/teams", async (c) => {
-    const body = await c.req.json<{
+export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCreated?: (name: string, team: Team) => void) {
+  app.post("/api/teams", adminAuth, async (c: any) => {
+    const body = await c.req.json() as {
       name?: string;
       port?: number;
       leader?: string;
       members?: { username: string; responsibilities?: string }[];
-    }>();
+    };
     const name = body.name?.trim();
     if (!name) return c.json({ error: "name is required" }, 400);
     if (!body.leader) return c.json({ error: "leader is required" }, 400);
@@ -71,9 +75,16 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     return c.json({ name, port, createdAt: meta.createdAt }, 201);
   });
 
-  app.get("/api/teams", async (c) => {
+  app.get("/api/teams", dualAuth, async (c: any) => {
     const records = await loadRegistry();
-    const username = c.req.query("username")?.trim();
+    let username = c.req.query("username")?.trim();
+
+    if (c.get("authType") === "client") {
+      const sessionUser = c.get("userId");
+      if (typeof sessionUser !== "string") return c.json({ error: "unauthorized" }, 401);
+      if (username && username !== sessionUser) return c.json({ error: "forbidden" }, 403);
+      username = sessionUser;
+    }
 
     // If username provided, only return teams where user is leader or member
     if (username) {
@@ -109,10 +120,11 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     );
   });
 
-  app.get("/api/teams/:name", async (c) => {
+  app.get("/api/teams/:name", dualAuth, async (c: any) => {
     const name = c.req.param("name");
     const meta = await loadMeta(name);
     if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
 
     const instance = teams.get(name);
     return c.json({
@@ -126,7 +138,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     });
   });
 
-  app.delete("/api/teams/:name", async (c) => {
+  app.delete("/api/teams/:name", adminAuth, async (c: any) => {
     const name = c.req.param("name");
     const meta = await loadMeta(name);
     if (!meta) return c.json({ error: "team not found" }, 404);
@@ -145,9 +157,10 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
   });
 
   // Get configured team members (from meta, merged with latest user data)
-  app.get("/api/teams/:name/configured-members", async (c) => {
+  app.get("/api/teams/:name/configured-members", dualAuth, async (c: any) => {
     const meta = await loadMeta(c.req.param("name"));
     if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
     const users = await loadUsers();
     const userMap = new Map(users.map((u) => [u.username, u]));
     const members = meta.members.map((m) => {
@@ -170,7 +183,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
   });
 
   // Add member to team
-  app.put("/api/teams/:name/members/:username", async (c) => {
+  app.put("/api/teams/:name/members/:username", adminAuth, async (c: any) => {
     const teamName = c.req.param("name");
     const username = c.req.param("username");
     const meta = await loadMeta(teamName);
@@ -181,14 +194,14 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     if (meta.members.some((m) => m.username === username))
       return c.json({ error: "member already in team" }, 409);
 
-    const body = await c.req.json<{ responsibilities?: string; capabilities?: string }>().catch(() => ({ responsibilities: undefined, capabilities: undefined }));
+    const body = await c.req.json().catch(() => ({ responsibilities: undefined, capabilities: undefined })) as { responsibilities?: string; capabilities?: string };
     meta.members.push({ username, responsibilities: body.responsibilities, capabilities: body.capabilities });
     await saveMeta(meta);
     return c.json({ ok: true });
   });
 
   // Remove member from team
-  app.delete("/api/teams/:name/members/:username", async (c) => {
+  app.delete("/api/teams/:name/members/:username", adminAuth, async (c: any) => {
     const teamName = c.req.param("name");
     const username = c.req.param("username");
     const meta = await loadMeta(teamName);
@@ -202,8 +215,13 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     return c.json({ ok: true });
   });
 
-  app.get("/api/teams/:name/members", async (c) => {
-    const instance = teams.get(c.req.param("name"));
+  app.get("/api/teams/:name/members", dualAuth, async (c: any) => {
+    const teamName = c.req.param("name");
+    const meta = await loadMeta(teamName);
+    if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
+
+    const instance = teams.get(teamName);
     if (!instance) return c.json({ error: "team not found" }, 404);
     const clients = instance.innerServer.getClients();
     const users = await loadUsers();
@@ -216,8 +234,12 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     );
   });
 
-  app.get("/api/teams/:name/tasks", async (c) => {
+  app.get("/api/teams/:name/tasks", dualAuth, async (c: any) => {
     const name = c.req.param("name");
+    const meta = await loadMeta(name);
+    if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
+
     const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
     const tasks = queryTasks(name);
@@ -231,9 +253,13 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     }));
   });
 
-  app.get("/api/teams/:name/members/:id/task-stats", async (c) => {
+  app.get("/api/teams/:name/members/:id/task-stats", dualAuth, async (c: any) => {
     const name = c.req.param("name");
     const memberId = c.req.param("id");
+    const meta = await loadMeta(name);
+    if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
+
     const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
     const tasks = queryTasks(name);
@@ -246,7 +272,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
   });
 
   // Delete all tasks for a team
-  app.delete("/api/teams/:name/tasks", async (c) => {
+  app.delete("/api/teams/:name/tasks", adminAuth, async (c: any) => {
     const name = c.req.param("name");
     const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
@@ -276,7 +302,7 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
   });
 
   // Delete a single task
-  app.delete("/api/teams/:name/tasks/:id", async (c) => {
+  app.delete("/api/teams/:name/tasks/:id", adminAuth, async (c: any) => {
     const name = c.req.param("name");
     const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
@@ -304,8 +330,12 @@ export default function teamRoutes(app: Hono, teams: Map<string, Team>, onTeamCr
     return c.json({ ok: true, deleted: deleted ? taskId : null });
   });
 
-  app.get("/api/teams/:name/tasks/:id", async (c) => {
+  app.get("/api/teams/:name/tasks/:id", dualAuth, async (c: any) => {
     const name = c.req.param("name");
+    const meta = await loadMeta(name);
+    if (!meta) return c.json({ error: "team not found" }, 404);
+    if (!canAccessTeam(c, meta)) return c.json({ error: "forbidden" }, 403);
+
     const instance = teams.get(name);
     if (!instance) return c.json({ error: "team not found" }, 404);
     const task = queryTaskById(name, c.req.param("id"));

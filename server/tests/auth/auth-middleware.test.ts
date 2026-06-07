@@ -270,9 +270,9 @@ describe("Route protection: dashboard (adminAuth)", () => {
   });
 });
 
-// ─── Route group: teams (adminAuth) ───
+// ─── Route group: teams (dualAuth for reads, adminAuth for writes) ───
 
-describe("Route protection: teams (adminAuth)", () => {
+describe("Route protection: teams", () => {
   it("GET /api/teams rejects without token", async () => {
     const app = new Hono();
     app.use("*", cors());
@@ -290,6 +290,28 @@ describe("Route protection: teams (adminAuth)", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status).not.toBe(401);
+  });
+
+  it("GET /api/teams allows with valid client token", async () => {
+    const token = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("*", cors());
+    teamRoutes(app, new Map());
+    const res = await app.request("/api/teams?username=alice", {
+      headers: { "X-Envoy-Token": token },
+    });
+    expect(res.status).not.toBe(401);
+  });
+
+  it("GET /api/teams rejects client querying another username", async () => {
+    const token = __seedClientSession("alice", "member");
+    const app = new Hono();
+    app.use("*", cors());
+    teamRoutes(app, new Map());
+    const res = await app.request("/api/teams?username=bob", {
+      headers: { "X-Envoy-Token": token },
+    });
+    expect(res.status).toBe(403);
   });
 
   it("POST /api/teams rejects without token", async () => {

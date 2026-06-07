@@ -66,5 +66,6 @@ export function validateSession(token: string): boolean {
     sessions.delete(token);
     return false;
   }
+  session.createdAt = Date.now();
   return true;
 }
