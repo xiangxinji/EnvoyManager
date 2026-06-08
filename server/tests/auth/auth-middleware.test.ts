@@ -360,6 +360,15 @@ describe("Route protection: messages (clientAuth)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("GET /api/messages/attachments serves without client token", async () => {
+    const app = new Hono();
+    app.use("*", cors());
+    messageRoutes(app, new Map());
+    const res = await app.request("/api/messages/attachments/test-team/2026-06-06/missing.png");
+    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(404);
+  });
+
   it("POST /api/tasks rejects without token", async () => {
     const app = new Hono();
     app.use("*", cors());

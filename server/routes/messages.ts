@@ -13,7 +13,14 @@ const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024; // 50MB
 
 export default function messageRoutes(app: Hono, teams: Map<string, Team>) {
   // ─── Auth middleware for all message/task/sticker routes ───
-  app.use("/api/messages/*", clientAuth);
+  app.use("/api/messages/*", async (c, next) => {
+    const path = new URL(c.req.url).pathname;
+    if (c.req.method === "GET" && path.startsWith("/api/messages/attachments/")) {
+      await next();
+      return;
+    }
+    return clientAuth(c, next);
+  });
   app.use("/api/tasks/*", clientAuth);
   app.use("/api/stickers", clientAuth);
   app.use("/api/stickers/*", clientAuth);
